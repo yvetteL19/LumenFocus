@@ -1,0 +1,178 @@
+/*
+  Localizable.strings (English)
+  LumenFocus
+*/
+
+// MARK: - Onboarding
+
+"欢迎使用 LumenFocus" = "Welcome to LumenFocus";
+"屏幕缓慢渐暗代替闹钟，温柔提醒护眼" = "Gradual screen dimming replaces alarm-style breaks";
+"视频会议、演示、离开时自动避让" = "Auto-pauses during meetings, presentations, and away time";
+"本地记录用眼数据，无任何上传" = "All eye-care stats stay on your Mac";
+"先感受一下" = "See it first";
+"到了该休息的时刻，LumenFocus 会用 20 秒让屏幕缓慢暗下来。\n点下面试 10 秒压缩版。" = "When it's time to rest, LumenFocus dims your screen over 20 seconds.\nTap below for a 10-second preview.";
+"演示中…" = "Demoing…";
+"亲身感受一下（10 秒）" = "Try it (10 seconds)";
+"演示会用与正式休息相同的渐暗效果，但不计入今日统计。" = "Same gradual fade as the real thing, but won't count toward your stats.";
+"选择你的节奏" = "Pick your rhythm";
+"20-20-20" = "20-20-20";
+"20 分钟 / 20 秒（医学共识）" = "20 min / 20 sec (medical consensus)";
+"默认" = "Default";
+"40 分钟 / 5 分钟" = "40 min / 5 min";
+"深度工作" = "Deep work";
+"50 分钟 / 10 分钟" = "50 min / 10 min";
+"自定义" = "Custom";
+"自己设定" = "Roll your own";
+"推荐" = "Recommended";
+"工作 %d 分钟" = "Work %d min";
+"休息 %d 分钟" = "Rest %d min";
+"最后一步" = "One last thing";
+"开机时自动启动" = "Launch at login";
+"每次开机自动在菜单栏待命" = "Boots into the menu bar quietly each time you sign in";
+"通知权限" = "Notification permission";
+"用于每周日 20:00 发送护眼周报。完全本地生成，不会推送任何广告。" = "Used for Sunday 20:00 weekly recap. Generated locally — never any ads.";
+"开始守护我的眼睛" = "Start protecting my eyes";
+"继续" = "Continue";
+"上一步" = "Back";
+
+// MARK: - Menu bar popover
+
+"今日护眼" = "Today";
+"%d 天" = "%d days";
+"工作中" = "Working";
+"渐暗中…" = "Dimming…";
+"休息中" = "Resting";
+"已暂停" = "Paused";
+"已自动暂停" = "Auto-paused";
+"下次休息在 %d 分钟后" = "Next break in %d min";
+"再过 %@ 回到工作" = "Back to work in %@";
+"通过菜单恢复" = "Resume via menu";
+"检测到无操作" = "No activity detected";
+"检测到视频通话" = "Video call detected";
+"检测到全屏应用" = "Fullscreen app detected";
+"系统勿扰模式" = "Do Not Disturb is on";
+"屏幕已锁定" = "Screen is locked";
+"本周" = "This week";
+"%d 次" = "%d";
+"详细统计" = "Detailed statistics";
+"设置…" = "Settings…";
+"退出 LumenFocus" = "Quit LumenFocus";
+"%d 次 · %@" = "%d rests · %@";
+"%@ · %d 次" = "%@ · %d rests";
+
+// MARK: - Menu bar context menu (AppKit)
+
+"今日已护眼：%d 次" = "Eye care today: %d";
+"累计用眼：%@" = "Screen time today: %@";
+"下次休息：%d 分钟后" = "Next break: %d min";
+"剩余时间：%d 分钟" = "Remaining: %d min";
+"暂停至今日结束" = "Paused until end of day";
+"LumenFocus (已暂停)" = "LumenFocus (Paused)";
+"再撑 2 分钟后再次提醒" = "Remind me again in 2 minutes";
+
+// MARK: - Menu items
+
+"稍后提醒" = "Snooze";
+"5 分钟" = "5 minutes";
+"15 分钟" = "15 minutes";
+"30 分钟" = "30 minutes";
+"1 小时" = "1 hour";
+"至今日结束" = "Until end of day";
+"设置..." = "Settings…";
+"帮助" = "Help";
+"关于 LumenFocus" = "About LumenFocus";
+"温柔的护眼提醒 — 屏幕缓慢渐暗，提醒你看向远方。所有数据仅存于本机。" = "A gentle eye-care reminder — the screen dims slowly, nudging you to look into the distance. All data stays on your Mac.";
+"开发选项" = "Developer";
+"测试休息遮罩" = "Test rest overlay";
+"重新显示欢迎引导" = "Replay onboarding";
+"退出" = "Quit";
+"恢复护眼" = "Resume";
+
+// MARK: - Tooltips
+
+"LumenFocus - 眼睛电量满格，还有%d分钟" = "LumenFocus — eyes fully charged, %d min left";
+"LumenFocus - 眼睛电量一半，还有%d分钟" = "LumenFocus — eye charge half, %d min left";
+"LumenFocus - 眼睛电量低，还有%d分钟即将休息" = "LumenFocus — eye charge low, rest in %d min";
+"已暂停，剩余 %d 分钟" = "Paused — %d min left";
+"已暂停至今日结束" = "Paused until end of day";
+"LumenFocus - 已自动暂停（检测到无操作）" = "LumenFocus — auto-paused (no activity)";
+"LumenFocus - 已自动暂停（检测到视频通话）" = "LumenFocus — auto-paused (video call)";
+"LumenFocus - 已自动暂停（检测到全屏应用）" = "LumenFocus — auto-paused (fullscreen app)";
+"LumenFocus - 已自动暂停（系统勿扰模式）" = "LumenFocus — auto-paused (Focus mode)";
+"LumenFocus - 已自动暂停（屏幕锁定）" = "LumenFocus — auto-paused (screen locked)";
+
+// MARK: - Overlay
+
+"按 ESC 提前结束" = "Press ESC to end early";
+"再撑 2 分钟" = "Give me 2 more minutes";
+"剩余休息时间" = "Remaining rest time";
+"剩余休息时间 %d 分 %d 秒" = "Remaining %d min %d sec";
+"按Escape键提前结束休息" = "Press Escape to end rest early";
+"吸气" = "Inhale";
+"屏息" = "Hold";
+"呼气" = "Exhale";
+"看向移动的亮点" = "Follow the moving dot";
+"让眼球转动是放松眼肌的关键" = "Moving your eyes relaxes the eye muscles";
+
+// MARK: - Settings
+
+"LumenFocus 设置" = "LumenFocus Settings";
+"时间配置" = "Schedule";
+"工作时长" = "Work duration";
+"休息时长" = "Rest duration";
+"%d 分钟" = "%d min";
+
+"休息体验" = "Rest experience";
+"环境音" = "Ambient sound";
+"关闭" = "Off";
+"轻雨" = "Rain";
+"白噪音" = "White noise";
+"森林" = "Forest";
+"休息开始时自动播放并循环。默认关闭；可在休息时点菜单栏暂时静音。" = "Plays in a loop during rest. Off by default; you can mute from the menu bar mid-rest.";
+
+"智能避让" = "Smart auto-pause";
+"启用智能避让" = "Enable smart auto-pause";
+"当检测到以下场景时自动暂停提醒，避免在错误的时机打扰你。" = "Pause reminders when these contexts are detected, so we never interrupt you at the wrong moment.";
+"视频通话 / 屏幕共享" = "Video call / screen share";
+"全屏演示 / 视频" = "Fullscreen presentation / video";
+"长时间无操作（≥ 1 分钟）" = "Idle for ≥ 1 min";
+"屏幕锁定 / 系统睡眠" = "Screen locked / system asleep";
+
+"外观与启动" = "Appearance & launch";
+"菜单栏显示剩余分钟数字" = "Show remaining minutes on menu bar";
+"例如：「眼 23m」。关闭则只显示图标" = "e.g. \"Eye 23m\". Off keeps the icon only";
+
+"统计数据" = "Statistics";
+"本周护眼" = "This week";
+"本周用眼" = "Eye time";
+"平均每天" = "Daily avg";
+"查看详细统计" = "View detailed statistics";
+
+"关于与隐私" = "About & Privacy";
+"隐私政策" = "Privacy Policy";
+"联系支持" = "Contact Support";
+"版本" = "Version";
+"恢复默认" = "Reset to defaults";
+"保存" = "Save";
+"取消" = "Cancel";
+"恢复" = "Reset";
+"确定要恢复默认设置吗？" = "Reset all settings to default?";
+
+// MARK: - Statistics window
+
+"统计" = "Statistics";
+"当前 streak" = "Current streak";
+"最长 streak" = "Longest streak";
+"近 7 日" = "Last 7 days";
+"近 90 日热力图" = "Last 90 days";
+"浅 → 深 = 0 → 最多" = "Lighter → darker = fewer → more";
+"数据完全本地存储 · 卸载即删除" = "All data stays on this Mac — uninstalling wipes it";
+"导出 CSV" = "Export CSV";
+"还没有护眼记录" = "No eye-care records yet";
+"完成第一次休息后，这里会出现你的趋势图和热力图。" = "After your first rest, your trends and heatmap will appear here.";
+
+// MARK: - Notifications
+
+"本周护眼总结" = "This week's eye care";
+"护眼 %d 次 · 用眼 %@" = "%d rests · %@ of screen time";
+" · 连续 %d 天达标" = " · %d-day streak";
