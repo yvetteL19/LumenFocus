@@ -96,12 +96,9 @@ class StatisticsManager {
         return getWeeklyStatistics().reduce(0) { $0 + $1.workDuration }
     }
 
-    /// 获取本周用眼总时长（格式化字符串）
+    /// 获取本周用眼总时长（格式化字符串，本地化）
     func getWeeklyWorkDurationFormatted() -> String {
-        let totalSeconds = getWeeklyWorkDuration()
-        let hours = totalSeconds / 3600
-        let minutes = (totalSeconds % 3600) / 60
-        return "\(hours)小时\(minutes)分"
+        return formatWorkDuration(getWeeklyWorkDuration())
     }
 
     /// 获取每日平均护眼次数

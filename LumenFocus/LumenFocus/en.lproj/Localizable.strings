@@ -14,6 +14,7 @@
 "演示中…" = "Demoing…";
 "亲身感受一下（10 秒）" = "Try it (10 seconds)";
 "演示会用与正式休息相同的渐暗效果，但不计入今日统计。" = "Same gradual fade as the real thing, but won't count toward your stats.";
+"演示中 · 按 ESC 或点击结束" = "Demo · press ESC or click to end";
 "选择你的节奏" = "Pick your rhythm";
 "20-20-20" = "20-20-20";
 "20 分钟 / 20 秒（医学共识）" = "20 min / 20 sec (medical consensus)";
@@ -55,6 +56,8 @@
 "本周" = "This week";
 "%d 次" = "%d";
 "详细统计" = "Detailed statistics";
+"现在休息" = "Rest now";
+"提前结束休息" = "End rest early";
 "设置…" = "Settings…";
 "退出 LumenFocus" = "Quit LumenFocus";
 "%d 次 · %@" = "%d rests · %@";
@@ -161,8 +164,8 @@
 // MARK: - Statistics window
 
 "统计" = "Statistics";
-"当前 streak" = "Current streak";
-"最长 streak" = "Longest streak";
+"当前连续" = "Current streak";
+"最长连续" = "Longest streak";
 "近 7 日" = "Last 7 days";
 "近 90 日热力图" = "Last 90 days";
 "浅 → 深 = 0 → 最多" = "Lighter → darker = fewer → more";

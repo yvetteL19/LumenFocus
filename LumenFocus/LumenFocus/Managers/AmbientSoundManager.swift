@@ -24,10 +24,10 @@ enum AmbientTrack: String, CaseIterable, Identifiable, Codable {
 
     var displayName: String {
         switch self {
-        case .off:        return "关闭"
-        case .rain:       return "轻雨"
-        case .whiteNoise: return "白噪音"
-        case .forest:     return "森林"
+        case .off:        return L("关闭")
+        case .rain:       return L("轻雨")
+        case .whiteNoise: return L("白噪音")
+        case .forest:     return L("森林")
         }
     }
 

@@ -105,15 +105,9 @@ class AppState: ObservableObject {
         return String(format: "%d:%02d", minutes, seconds)
     }
 
-    /// 格式化今日用眼时长
+    /// 格式化今日用眼时长（本地化）
     var formattedTodayWorkDuration: String {
-        let hours = todayWorkDuration / 3600
-        let minutes = (todayWorkDuration % 3600) / 60
-        if hours > 0 {
-            return "\(hours)小时\(minutes)分"
-        } else {
-            return "\(minutes)分钟"
-        }
+        formatWorkDuration(todayWorkDuration)
     }
 
     // MARK: - Private Properties

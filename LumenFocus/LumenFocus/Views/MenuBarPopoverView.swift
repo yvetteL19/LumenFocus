@@ -121,6 +121,8 @@ struct MenuBarPopoverView: View {
 
     private var actionsSection: some View {
         VStack(alignment: .leading, spacing: 0) {
+            phaseControls
+            Divider().padding(.vertical, 4)
             PopoverActionRow(systemName: "chart.bar.xaxis", label: "详细统计") {
                 onClose()
                 StatisticsWindowManager.shared.show()
@@ -133,6 +135,68 @@ struct MenuBarPopoverView: View {
                 NSApplication.shared.terminate(nil)
             }
         }
+    }
+
+    /// 随当前阶段变化的主控制项（全部在左键 popover 内，无需右键）
+    @ViewBuilder private var phaseControls: some View {
+        switch appState.currentPhase {
+        case .working:
+            PopoverActionRow(systemName: "moon.circle", label: "现在休息") {
+                onClose()
+                TimerManager.shared.triggerManualRest()
+            }
+            snoozeMenu
+        case .paused, .autoSuspended:
+            PopoverActionRow(systemName: "play.circle", label: "恢复护眼") {
+                onClose()
+                TimerManager.shared.resume()
+            }
+        case .triggeringRest, .resting:
+            PopoverActionRow(systemName: "stop.circle", label: "提前结束休息") {
+                onClose()
+                RestController.shared.cancelRest()
+            }
+        }
+    }
+
+    /// 「稍后提醒」下拉，避免一长串选项铺满 popover
+    private var snoozeMenu: some View {
+        Menu {
+            Button(action: { snooze(5) })  { Text("5 分钟") }
+            Button(action: { snooze(15) }) { Text("15 分钟") }
+            Button(action: { snooze(30) }) { Text("30 分钟") }
+            Button(action: { snooze(60) }) { Text("1 小时") }
+            Button(action: { snoozeUntilEndOfDay() }) { Text("至今日结束") }
+        } label: {
+            HStack(spacing: 10) {
+                Image(systemName: "clock.badge")
+                    .font(.system(size: 13))
+                    .frame(width: 18)
+                Text("稍后提醒")
+                    .font(.system(size: 13))
+                Spacer()
+                Image(systemName: "chevron.down")
+                    .font(.system(size: 10))
+                    .foregroundColor(Color.LumenFocus.textTertiary)
+            }
+            .foregroundColor(Color.LumenFocus.textPrimary)
+            .padding(.horizontal, 8)
+            .padding(.vertical, 7)
+            .frame(maxWidth: .infinity)
+            .contentShape(Rectangle())
+        }
+        .menuStyle(.borderlessButton)
+        .menuIndicator(.hidden)
+    }
+
+    private func snooze(_ minutes: Int) {
+        onClose()
+        TimerManager.shared.pause(duration: TimeInterval(minutes * 60))
+    }
+
+    private func snoozeUntilEndOfDay() {
+        onClose()
+        TimerManager.shared.pause(duration: nil)
     }
 
     // MARK: - Refresh
@@ -156,7 +220,7 @@ private struct PopoverActionRow: View {
                 Image(systemName: systemName)
                     .font(.system(size: 13))
                     .frame(width: 18)
-                Text(label)
+                Text(verbatim: L(label))
                     .font(.system(size: 13))
                 Spacer()
                 if let s = shortcut {

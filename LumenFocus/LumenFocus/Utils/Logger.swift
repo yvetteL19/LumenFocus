@@ -14,6 +14,16 @@ import os
     NSLocalizedString(key, comment: comment)
 }
 
+/// 本地化的时长格式化（小时/分钟），随系统语言自动切换：
+/// 中文 "1小时30分钟" / 英文 "1h 30m"。用于今日用眼、统计等所有展示。
+func formatWorkDuration(_ seconds: Int) -> String {
+    let f = DateComponentsFormatter()
+    f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
+    f.unitsStyle = .abbreviated
+    f.zeroFormattingBehavior = .dropAll
+    return f.string(from: TimeInterval(max(0, seconds))) ?? "0m"
+}
+
 /// 全局 Logger 命名空间。按模块拆 category，便于在 Console.app 中过滤。
 enum Log {
     private static let subsystem: String = Bundle.main.bundleIdentifier ?? "Yvette.LumenFocus"

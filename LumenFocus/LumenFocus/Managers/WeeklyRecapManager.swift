@@ -48,10 +48,10 @@ final class WeeklyRecapManager {
         let streak = stats.getCurrentStreak()
 
         let content = UNMutableNotificationContent()
-        content.title = "本周护眼总结"
-        var body = "护眼 \(weeklyRestCount) 次 · 用眼 \(workSummary)"
+        content.title = L("本周护眼总结")
+        var body = String(format: L("护眼 %d 次 · 用眼 %@"), weeklyRestCount, workSummary)
         if streak > 0 {
-            body += " · 连续 \(streak) 天达标"
+            body += String(format: L(" · 连续 %d 天达标"), streak)
         }
         content.body = body
         content.sound = nil

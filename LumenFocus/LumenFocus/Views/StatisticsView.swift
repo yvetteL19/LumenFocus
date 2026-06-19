@@ -25,8 +25,8 @@ struct StatisticsView: View {
                     .foregroundColor(Color.LumenFocus.textPrimary)
 
                 HStack(spacing: 12) {
-                    StatCard(label: "当前 streak", value: String(format: L("%d 天"), currentStreak))
-                    StatCard(label: "最长 streak", value: String(format: L("%d 天"), longestStreak))
+                    StatCard(label: "当前连续", value: String(format: L("%d 天"), currentStreak))
+                    StatCard(label: "最长连续", value: String(format: L("%d 天"), longestStreak))
                     StatCard(label: "本周护眼", value: String(format: L("%d 次"), weeklyStats.reduce(0) { $0 + $1.restCount }))
                     StatCard(label: "本周用眼", value: StatisticsManager.shared.getWeeklyWorkDurationFormatted())
                 }
