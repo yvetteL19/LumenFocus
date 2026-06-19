@@ -6,6 +6,7 @@
 // MARK: - Onboarding
 
 "欢迎使用 LumenFocus" = "Welcome to LumenFocus";
+"欢迎" = "Welcome";
 "屏幕缓慢渐暗代替闹钟，温柔提醒护眼" = "Gradual screen dimming replaces alarm-style breaks";
 "视频会议、演示、离开时自动避让" = "Auto-pauses during meetings, presentations, and away time";
 "本地记录用眼数据，无任何上传" = "All eye-care stats stay on your Mac";

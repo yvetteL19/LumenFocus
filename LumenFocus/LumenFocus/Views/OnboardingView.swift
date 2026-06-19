@@ -220,7 +220,7 @@ struct OnboardingView: View {
                     .foregroundColor(selected ? Color.LumenFocus.ink : Color.LumenFocus.textSecondary)
                 VStack(alignment: .leading, spacing: 2) {
                     HStack(spacing: 6) {
-                        Text(preset.title)
+                        Text(verbatim: L(preset.title))
                             .font(.system(size: 15, weight: .semibold))
                             .foregroundColor(Color.LumenFocus.textPrimary)
                         if preset == .default {
@@ -233,7 +233,7 @@ struct OnboardingView: View {
                                 .cornerRadius(4)
                         }
                     }
-                    Text(preset.subtitle)
+                    Text(verbatim: L(preset.subtitle))
                         .font(.system(size: 12))
                         .foregroundColor(Color.LumenFocus.textSecondary)
                 }
@@ -306,7 +306,7 @@ struct OnboardingView: View {
             }
             Spacer()
             Button(action: handlePrimary) {
-                Text(primaryButtonTitle)
+                Text(verbatim: L(primaryButtonTitle))
                     .font(.system(size: 15, weight: .semibold))
                     .foregroundColor(Color.LumenFocus.onInk)
                     .frame(minWidth: 140, minHeight: 36)
@@ -362,17 +362,19 @@ struct OnboardingView: View {
             }
         }
 
-        // 3. 请求通知权限（弱失败：用户拒绝也不影响主流程）
-        UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge]) { granted, error in
-            if let error {
-                Log.notifications.error("Notification auth error: \(error.localizedDescription, privacy: .public)")
-            } else {
-                Log.notifications.info("Notification authorization granted=\(granted)")
+        // 3. 先关闭引导窗口，再请求通知权限——否则系统授权弹窗可能被引导窗
+        //    挡住，看起来像"卡死"。
+        OnboardingWindowManager.shared.close()
+
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
+            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge]) { granted, error in
+                if let error {
+                    Log.notifications.error("Notification auth error: \(error.localizedDescription, privacy: .public)")
+                } else {
+                    Log.notifications.info("Notification authorization granted=\(granted)")
+                }
             }
         }
-
-        // 4. 关闭引导窗口
-        OnboardingWindowManager.shared.close()
     }
 
     // MARK: - Subviews

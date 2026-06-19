@@ -43,10 +43,11 @@ class OnboardingWindowManager: NSObject, NSWindowDelegate {
             defer: false
         )
 
-        window.title = "欢迎"
+        window.title = L("欢迎")
         window.contentViewController = controller
         window.center()
-        window.level = .floating
+        // .normal（而非 .floating）：避免引导窗压在系统通知授权弹窗之上导致"卡住"
+        window.level = .normal
         window.styleMask.remove(.resizable)
 
         if !allowClose {
