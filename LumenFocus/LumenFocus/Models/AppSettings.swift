@@ -100,10 +100,8 @@ class AppSettings: ObservableObject {
 
     // MARK: - App info
 
-    /// 隐私政策页面（GitHub Pages）。
-    /// ⚠️ 仓库推送后，请把 `yveluo` 替换为你的实际 GitHub 用户名，并在
-    /// 仓库 Settings → Pages 中选择 `main` 分支的 `/docs` 目录发布。
-    static let privacyPolicyURLString = "https://yveluo.github.io/LumenFocus/"
+    /// 隐私政策页面（GitHub Pages，main 分支 /docs 目录发布）。
+    static let privacyPolicyURLString = "https://yvettel19.github.io/LumenFocus/"
 
     /// 支持邮箱
     static let supportEmail = "yveluo@outlook.com"
