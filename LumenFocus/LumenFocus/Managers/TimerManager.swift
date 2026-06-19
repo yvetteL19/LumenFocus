@@ -112,6 +112,18 @@ final class TimerManager: ObservableObject {
         if AppSettings.shared.enableSmartDetection {
             subscribeToWorkspaceSignals()
         }
+
+        // 设置里改了工作时长 → 当前若在工作期，立即按新时长重置本轮倒计时，
+        // 让菜单栏图标与 popover 即时反映（设置为即时生效，无"保存"按钮）。
+        AppSettings.shared.$workDurationMinutes
+            .dropFirst()
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] minutes in
+                guard let self, self.appState.isWorking else { return }
+                self.appState.remainingSeconds = minutes * 60
+                self.appState.updateProgress()
+            }
+            .store(in: &cancellables)
     }
 
     private func subscribeToWorkspaceSignals() {
