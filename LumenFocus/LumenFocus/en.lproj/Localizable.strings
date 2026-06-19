@@ -143,6 +143,10 @@
 "屏幕锁定 / 系统睡眠" = "Screen locked / system asleep";
 
 "外观与启动" = "Appearance & launch";
+"语言" = "Language";
+"跟随系统" = "Follow system";
+"重启以应用语言" = "Relaunch to apply";
+"切换语言需在重启 App 后生效。" = "Changing the language takes effect after you relaunch the app.";
 "菜单栏显示剩余分钟数字" = "Show remaining minutes on menu bar";
 "例如：「眼 23m」。关闭则只显示图标" = "e.g. \"Eye 23m\". Off keeps the icon only";
 

@@ -8,6 +8,7 @@
 //
 
 import SwiftUI
+import AppKit
 
 /// 设置界面 — 原生即时生效（无"保存"按钮），采用分组 Form。
 struct SettingsView: View {
@@ -34,6 +35,7 @@ struct SettingsView: View {
             restExperienceSection
             smartDetectionSection
             launchOptionsSection
+            languageSection
             statisticsSection
             aboutSection
             resetSection
@@ -145,6 +147,32 @@ struct SettingsView: View {
             Button("查看详细统计") {
                 StatisticsWindowManager.shared.show()
             }
+        }
+    }
+
+    private var languageSection: some View {
+        Section {
+            Picker("语言", selection: $settings.appLanguage) {
+                ForEach(AppLanguage.allCases) { lang in
+                    Text(verbatim: lang.displayName).tag(lang)
+                }
+            }
+            Button("重启以应用语言") { relaunchApp() }
+        } header: {
+            Text("语言")
+        } footer: {
+            Text("切换语言需在重启 App 后生效。")
+                .font(.system(size: 11))
+                .foregroundColor(Color.LumenFocus.textSecondary)
+        }
+    }
+
+    private func relaunchApp() {
+        let url = Bundle.main.bundleURL
+        let config = NSWorkspace.OpenConfiguration()
+        config.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
         }
     }
 

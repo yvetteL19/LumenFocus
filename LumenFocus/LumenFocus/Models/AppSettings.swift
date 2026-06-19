@@ -8,6 +8,23 @@
 import Foundation
 import Combine
 
+/// App 显示语言（覆盖系统）。通过写入 `AppleLanguages` 实现，重启后生效。
+enum AppLanguage: String, CaseIterable, Identifiable {
+    case system            // 跟随系统
+    case zhHans = "zh-Hans"
+    case en
+
+    var id: String { rawValue }
+
+    var displayName: String {
+        switch self {
+        case .system: return L("跟随系统")
+        case .zhHans: return "简体中文"
+        case .en:     return "English"
+        }
+    }
+}
+
 /// 应用设置 - 用户可配置参数
 class AppSettings: ObservableObject {
     static let shared = AppSettings()
@@ -74,6 +91,26 @@ class AppSettings: ObservableObject {
         didSet { UserDefaults.standard.set(showRemainingMinutesInMenuBar, forKey: Keys.showRemainingMinutesInMenuBar) }
     }
 
+    /// App 显示语言（覆盖系统，重启生效）
+    @Published var appLanguage: AppLanguage {
+        didSet {
+            UserDefaults.standard.set(appLanguage.rawValue, forKey: Keys.appLanguage)
+            Self.applyLanguagePreference(appLanguage)
+        }
+    }
+
+    /// 把语言选择写入 AppleLanguages（系统读取它决定本地化）。
+    static func applyLanguagePreference(_ language: AppLanguage) {
+        switch language {
+        case .system:
+            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
+        case .zhHans:
+            UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
+        case .en:
+            UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
+        }
+    }
+
     // MARK: - Constants
 
     private enum Keys {
@@ -90,6 +127,7 @@ class AppSettings: ObservableObject {
 
         static let ambientTrack = "ambientTrack"
         static let showRemainingMinutesInMenuBar = "showRemainingMinutesInMenuBar"
+        static let appLanguage = "appLanguage"
     }
 
     /// 默认工作时长（分钟）
@@ -132,6 +170,10 @@ class AppSettings: ObservableObject {
 
         // 菜单栏剩余分钟数字默认关（保持图标极简）
         self.showRemainingMinutesInMenuBar = UserDefaults.standard.object(forKey: Keys.showRemainingMinutesInMenuBar) as? Bool ?? false
+
+        // 显示语言（默认跟随系统）
+        let langRaw = UserDefaults.standard.string(forKey: Keys.appLanguage) ?? AppLanguage.system.rawValue
+        self.appLanguage = AppLanguage(rawValue: langRaw) ?? .system
     }
 
     // MARK: - Public Methods
