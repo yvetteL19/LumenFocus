@@ -112,17 +112,14 @@ class MenuBarController: NSObject {
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
 
-        // 根据状态更新图标
+        // 根据状态更新图标（iconState 仍用于 tooltip 文案分级）
         let iconState = determineIconState()
         let iconImage: NSImage
 
         switch iconState {
-        case .full:
-            iconImage = iconManager.fullIcon()
-        case .half:
-            iconImage = iconManager.halfIcon()
-        case .low:
-            iconImage = iconManager.lowIcon()
+        case .full, .half, .low:
+            // 连续进度环，精确反映剩余比例
+            iconImage = iconManager.progressIcon(appState.progress)
         case .paused:
             iconImage = iconManager.pausedIcon()
         case .autoSuspended:

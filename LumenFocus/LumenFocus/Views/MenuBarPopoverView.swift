@@ -3,11 +3,10 @@
 //  LumenFocus
 //
 //  Popover content shown on left-click of the menu-bar icon.
-//  Today summary + streak + 7-day bar chart + action shortcuts.
+//  Today summary + streak + current-cycle ring + action shortcuts.
 //
 
 import SwiftUI
-import Charts
 
 struct MenuBarPopoverView: View {
     @ObservedObject var appState = AppState.shared
@@ -15,19 +14,17 @@ struct MenuBarPopoverView: View {
     /// 关闭 popover 的回调（由宿主 NSPopover 注入）
     var onClose: () -> Void = {}
 
-    @State private var weeklyStats: [DailyStatistics] = []
     @State private var streak: Int = 0
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
             headerSection
             ringSection
-            chartSection
             Divider()
             actionsSection
         }
         .padding(20)
-        .frame(width: 320)
+        .frame(width: 300)
         .background(Color.LumenFocus.backgroundPrimary)
         .onAppear { refresh() }
     }
@@ -120,47 +117,6 @@ struct MenuBarPopoverView: View {
         }
     }
 
-    // MARK: - Chart
-
-    private var chartSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack {
-                Text("本周")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.LumenFocus.textSecondary)
-                Spacer()
-                Text(verbatim: String(format: L("%d 次"), weeklyStats.reduce(0) { $0 + $1.restCount }))
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.LumenFocus.textSecondary)
-            }
-            Chart(weeklyStats, id: \.date) { stats in
-                BarMark(
-                    x: .value("日", shortWeekday(stats.date)),
-                    y: .value("次数", stats.restCount)
-                )
-                .foregroundStyle(Color.LumenFocus.ink)
-                .cornerRadius(2)
-            }
-            .chartYAxis(.hidden)
-            .chartXAxis {
-                AxisMarks(values: .automatic) { value in
-                    AxisValueLabel().font(.system(size: 10))
-                }
-            }
-            .frame(height: 80)
-        }
-    }
-
-    private func shortWeekday(_ dateKey: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: dateKey) else { return "" }
-        let calendar = Calendar.current
-        let weekday = calendar.component(.weekday, from: date)
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
-        return symbols[(weekday - 1 + 7) % symbols.count]
-    }
-
     // MARK: - Actions
 
     private var actionsSection: some View {
@@ -182,7 +138,6 @@ struct MenuBarPopoverView: View {
     // MARK: - Refresh
 
     private func refresh() {
-        weeklyStats = StatisticsManager.shared.getWeeklyStatistics()
         streak = StatisticsManager.shared.getCurrentStreak()
     }
 }

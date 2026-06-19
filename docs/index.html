@@ -9,34 +9,38 @@
   * { box-sizing: border-box; }
   body {
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
-    line-height: 1.65;
-    max-width: 720px;
+    line-height: 1.7;
+    max-width: 740px;
     margin: 0 auto;
-    padding: 64px 24px 96px;
+    padding: 64px 24px 120px;
     color: #1a1a1a;
     background: #ffffff;
   }
   @media (prefers-color-scheme: dark) {
-    body { color: #ededed; background: #0e0e0e; }
-    a { color: #ededed; }
-    .muted { color: #999; }
-    hr { border-color: #2a2a2a; }
+    body { color: #e8e8e8; background: #0e0e0e; }
+    a { color: #e8e8e8; }
+    .muted { color: #8a8a8a; }
+    hr { border-color: #262626; }
+    th, td { border-color: #262626 !important; }
   }
-  h1 { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
-  h2 { font-size: 18px; font-weight: 600; margin: 40px 0 8px; }
+  h1 { font-size: 30px; font-weight: 700; letter-spacing: -0.02em; margin: 0 0 4px; }
+  h2 { font-size: 17px; font-weight: 600; margin: 40px 0 8px; }
   p, li { font-size: 15px; }
+  ul { padding-left: 22px; }
+  li { margin: 4px 0; }
   .muted { color: #666; font-size: 13px; }
-  a { color: #1a1a1a; }
-  hr { border: none; border-top: 1px solid #e5e5e5; margin: 40px 0; }
+  .lead { font-size: 16px; }
+  a { color: #1a1a1a; text-underline-offset: 2px; }
+  hr { border: none; border-top: 1px solid #e8e8e8; margin: 48px 0 24px; }
+  table { border-collapse: collapse; width: 100%; margin: 12px 0; font-size: 14px; }
+  th, td { border: 1px solid #e8e8e8; padding: 8px 10px; text-align: left; vertical-align: top; }
+  th { font-weight: 600; }
   .logo {
     width: 56px; height: 56px; border-radius: 13px;
     background: radial-gradient(circle at 50% 45%, #1f1f1f, #000);
-    display: flex; align-items: center; justify-content: center; margin-bottom: 20px;
+    display: flex; align-items: center; justify-content: center; margin-bottom: 24px;
   }
-  .logo span {
-    width: 22px; height: 22px; border-radius: 50%;
-    border: 2.4px solid #fff; position: relative;
-  }
+  .logo span { width: 22px; height: 22px; border-radius: 50%; border: 2.4px solid #fff; position: relative; }
   .logo span::after {
     content: ""; position: absolute; inset: 0; margin: auto;
     width: 6px; height: 6px; border-radius: 50%; background: #fff;
@@ -45,51 +49,87 @@
 </head>
 <body>
   <div class="logo"><span></span></div>
-  <h1>LumenFocus Privacy Policy</h1>
-  <p class="muted">Last updated: 19 June 2026</p>
+  <h1>Privacy Policy</h1>
+  <p class="muted">LumenFocus for macOS · Effective date: 19 June 2026</p>
 
-  <p>LumenFocus is a menu-bar app for macOS that reminds you to rest your eyes. We
-  designed it to be private by default. This policy explains what the app does and
-  does not do with your data.</p>
+  <p class="lead">LumenFocus (“the App”, “we”, “us”) is a menu-bar utility for macOS
+  that reminds you to rest your eyes. We believe privacy is a feature. This policy
+  describes how the App handles information. <strong>In short: the App does not
+  collect, transmit, or share any personal data, and there are no analytics,
+  tracking, accounts, or advertising.</strong></p>
 
-  <h2>The short version</h2>
-  <p><strong>LumenFocus does not collect, transmit, sell, or share any personal
-  data.</strong> There are no accounts, no analytics, no advertising, and no
-  third-party SDKs. The developer has no access to your information.</p>
+  <h2>1. Data Controller</h2>
+  <p>The App is provided by the LumenFocus developer (“the Developer”). Because the
+  App processes all information locally on your device and the Developer never
+  receives it, the Developer does not act as a data controller of any personal
+  data you generate while using the App. For privacy enquiries, contact
+  <a href="mailto:yveluo@outlook.com">yveluo@outlook.com</a>.</p>
 
-  <h2>Data stored on your device</h2>
-  <p>To make the app work, the following information is stored locally on your Mac
-  (in macOS <code>UserDefaults</code> and the app sandbox container) and never
-  leaves your device:</p>
+  <h2>2. Information We Do Not Collect</h2>
+  <p>We do not collect, store on our servers, or transmit any personal information.
+  Specifically, the App does <strong>not</strong>:</p>
   <ul>
-    <li>Your preferences (work / rest durations, smart-pause toggles, ambient
-        sound choice, launch-at-login, menu-bar display options).</li>
-    <li>Eye-care statistics (daily rest counts and screen-time totals, kept for up
-        to about 90 days for the trends and heatmap views).</li>
+    <li>require an account, name, email address, or sign-in;</li>
+    <li>contain analytics, crash-reporting, advertising, or tracking SDKs;</li>
+    <li>access your contacts, photos, location, camera, or microphone;</li>
+    <li>send your usage data, preferences, or statistics off your device.</li>
   </ul>
-  <p>This data is removed when you delete the app. You can also export your
-  statistics to a CSV file yourself; that file is created only where you choose to
-  save it.</p>
 
-  <h2>System permissions</h2>
+  <h2>3. Information Stored Locally on Your Device</h2>
+  <p>To function, the App stores the following on your Mac only (in macOS
+  <code>UserDefaults</code> and the App’s sandbox container). This data never
+  leaves your device and is not accessible to the Developer:</p>
+  <table>
+    <tr><th>Data</th><th>Purpose</th><th>Retention</th></tr>
+    <tr><td>Preferences (work/rest durations, smart-pause toggles, ambient sound, launch-at-login, menu-bar options)</td><td>Operate the App as you configured it</td><td>Until changed or the App is removed</td></tr>
+    <tr><td>Eye-care statistics (daily rest counts and screen-time totals)</td><td>Show your local trends and heatmap</td><td>Rolling ~90 days, then automatically deleted</td></tr>
+  </table>
+  <p>If you use the optional CSV export, a file is written only to the location you
+  choose; you control that file thereafter.</p>
+
+  <h2>4. Device Permissions</h2>
   <ul>
-    <li><strong>Notifications</strong> (optional): used solely to deliver a local
-        weekly eye-care summary. Nothing is sent over the network.</li>
-    <li><strong>Activity detection</strong>: to avoid interrupting you, the app
+    <li><strong>Notifications</strong> (optional): used only to deliver a local
+        weekly eye-care summary generated on your device. No content is sent over
+        a network. You can disable this in macOS System Settings at any time.</li>
+    <li><strong>Activity awareness</strong>: to avoid interrupting you, the App
         checks on-device signals such as whether a full-screen or video-call app is
-        active, or whether the Mac is idle or locked. These checks happen entirely
-        on your device and are not recorded or transmitted.</li>
+        active, or whether the Mac is idle or locked. These checks are performed in
+        memory, in real time, and are neither recorded nor transmitted.</li>
   </ul>
 
-  <h2>Children's privacy</h2>
-  <p>LumenFocus does not collect data from anyone, including children.</p>
+  <h2>5. Third Parties</h2>
+  <p>The App contains no third-party code that collects data. We do not sell,
+  rent, or share information with anyone, because we do not have it.</p>
 
-  <h2>Changes to this policy</h2>
-  <p>If this policy changes, the updated version will be posted on this page with a
-  new "last updated" date.</p>
+  <h2>6. Your Rights</h2>
+  <p>Regulations such as the EU/UK GDPR and the California Consumer Privacy Act
+  (CCPA) grant rights over personal data. Because the App holds your data solely on
+  your own device and the Developer has no access to it, you remain in full control:
+  you may view, export (CSV), or permanently erase all App data at any time by
+  adjusting settings or by uninstalling the App. We do not sell personal
+  information and never have.</p>
 
-  <h2>Contact</h2>
-  <p>Questions about privacy? Email
+  <h2>7. Data Security</h2>
+  <p>Your data is protected by the standard security model of macOS, including app
+  sandboxing and your device’s built-in protections. Keeping your Mac and its
+  operating system up to date is the best way to safeguard locally stored data.</p>
+
+  <h2>8. International Users</h2>
+  <p>Because no data is transmitted off your device, there is no international
+  transfer of personal data associated with the App.</p>
+
+  <h2>9. Children’s Privacy</h2>
+  <p>The App does not knowingly collect data from anyone, including children under
+  the age of 13 (or the equivalent minimum age in your jurisdiction).</p>
+
+  <h2>10. Changes to This Policy</h2>
+  <p>If this policy changes, the revised version will be posted on this page with an
+  updated effective date. Material changes will be reflected here before they take
+  effect.</p>
+
+  <h2>11. Contact</h2>
+  <p>Questions or requests regarding this policy can be sent to
   <a href="mailto:yveluo@outlook.com">yveluo@outlook.com</a>.</p>
 
   <hr>

@@ -16,82 +16,76 @@ class IconManager {
 
     // MARK: - Icon Generation
 
-    /// 生成满格图标（100%-67%）
-    func fullIcon() -> NSImage {
-        return createProgressIcon(filledBars: 3, color: .labelColor)
-    }
+    /// 满/半/低三级为兼容旧调用而保留，内部统一走连续进度环。
+    func fullIcon() -> NSImage { progressIcon(1.0) }
+    func halfIcon() -> NSImage { progressIcon(0.5) }
+    func lowIcon()  -> NSImage { progressIcon(0.2) }
 
-    /// 生成半格图标（66%-34%）
-    func halfIcon() -> NSImage {
-        return createProgressIcon(filledBars: 2, color: .labelColor)
-    }
+    /// 连续倒计时环图标：外圈随剩余进度顺时针收缩，中心一个圆点
+    /// （呼应 App 图标的「光圈 / 眼」造型）。template 图，自动适配菜单栏明暗。
+    /// - Parameter progress: 剩余进度 0.0–1.0（1.0 = 满环）
+    func progressIcon(_ progress: Double) -> NSImage {
+        let p = max(0.0, min(1.0, progress))
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            let center = NSPoint(x: size.width / 2, y: size.height / 2)
+            let radius: CGFloat = 6.4
+            let lineWidth: CGFloat = 1.8
 
-    /// 生成低电图标（33%-1%）- 黑白极简风格统一使用灰色
-    func lowIcon() -> NSImage {
-        return createProgressIcon(filledBars: 1, color: .lumenfocus.gray600)
-    }
+            // 轨道（淡）
+            let track = NSBezierPath()
+            track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
+            track.lineWidth = lineWidth
+            NSColor.black.withAlphaComponent(0.28).setStroke()
+            track.lineCapStyle = .round
+            track.stroke()
 
-    /// 生成勿扰图标
-    func pausedIcon() -> NSImage {
-        // 使用SF Symbol
-        if let pauseImage = NSImage(systemSymbolName: "zzz", accessibilityDescription: "Paused") {
-            let config = NSImage.SymbolConfiguration(pointSize: 16, weight: .regular)
-            return pauseImage.withSymbolConfiguration(config) ?? pauseImage
-        }
-
-        // 备用：文字图标
-        return createTextIcon(text: "😴", color: .systemGray)
-    }
-
-    // MARK: - Private Methods
-
-    /// 创建进度条图标
-    /// - Parameters:
-    ///   - filledBars: 填充的格子数（1-3）
-    ///   - color: 图标颜色
-    private func createProgressIcon(filledBars: Int, color: NSColor) -> NSImage {
-        let size = NSSize(width: 22, height: 22)
-
-        // 使用 NSImage 的 block-based drawing API，线程安全
-        let image = NSImage(size: size, flipped: false) { rect in
-            // 绘制眼睛符号（使用SF Symbol）
-            if let eyeSymbol = NSImage(systemSymbolName: "eye", accessibilityDescription: "Eye") {
-                let config = NSImage.SymbolConfiguration(pointSize: 12, weight: .regular)
-                let configuredEye = eyeSymbol.withSymbolConfiguration(config) ?? eyeSymbol
-
-                // 绘制眼睛图标
-                let eyeRect = NSRect(x: 2, y: 6, width: 12, height: 12)
-                configuredEye.draw(in: eyeRect)
+            // 进度弧（实）：从正上方 12 点顺时针收缩
+            if p > 0.001 {
+                let start: CGFloat = 90
+                let end = start - CGFloat(p) * 360
+                let arc = NSBezierPath()
+                arc.appendArc(withCenter: center, radius: radius, startAngle: start, endAngle: end, clockwise: true)
+                arc.lineWidth = lineWidth
+                arc.lineCapStyle = .round
+                NSColor.black.setStroke()
+                arc.stroke()
             }
 
-            // 绘制进度条（3个小格子）
-            let barWidth: CGFloat = 2.5
-            let barHeight: CGFloat = 8
-            let barSpacing: CGFloat = 1.5
-            let startX: CGFloat = 14
-
-            for i in 0..<3 {
-                let barX = startX + CGFloat(i) * (barWidth + barSpacing)
-                let barY: CGFloat = 7
-
-                let barRect = NSRect(x: barX, y: barY, width: barWidth, height: barHeight)
-
-                if i < filledBars {
-                    // 填充格
-                    color.setFill()
-                } else {
-                    // 空格（半透明）
-                    color.withAlphaComponent(0.2).setFill()
-                }
-
-                let path = NSBezierPath(roundedRect: barRect, xRadius: 1, yRadius: 1)
-                path.fill()
-            }
-
+            // 中心圆点
+            let dotR: CGFloat = 1.7
+            let dot = NSBezierPath(ovalIn: NSRect(x: center.x - dotR, y: center.y - dotR, width: dotR * 2, height: dotR * 2))
+            NSColor.black.setFill()
+            dot.fill()
             return true
         }
+        image.isTemplate = true
+        return image
+    }
 
-        // 设置为template image以支持浅色/深色模式
+    /// 暂停 / 自动避让图标：淡轨道 + 中心两根暂停竖条。
+    func pausedIcon() -> NSImage {
+        let size = NSSize(width: 18, height: 18)
+        let image = NSImage(size: size, flipped: false) { _ in
+            let center = NSPoint(x: size.width / 2, y: size.height / 2)
+            let radius: CGFloat = 6.4
+
+            let track = NSBezierPath()
+            track.appendArc(withCenter: center, radius: radius, startAngle: 0, endAngle: 360)
+            track.lineWidth = 1.8
+            NSColor.black.withAlphaComponent(0.28).setStroke()
+            track.stroke()
+
+            // 两根暂停竖条
+            let barW: CGFloat = 1.6, barH: CGFloat = 5.4, gap: CGFloat = 1.8
+            NSColor.black.setFill()
+            for sign in [-1.0, 1.0] {
+                let bx = center.x + (sign < 0 ? -gap/2 - barW : gap/2)
+                let rect = NSRect(x: bx, y: center.y - barH/2, width: barW, height: barH)
+                NSBezierPath(roundedRect: rect, xRadius: 0.7, yRadius: 0.7).fill()
+            }
+            return true
+        }
         image.isTemplate = true
         return image
     }
