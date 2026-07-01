@@ -59,6 +59,17 @@ final class TimerManager: ObservableObject {
         start()
     }
 
+    /// 全局快捷键 ⌘⌥E 的入口：休息中则取消（保证的"逃生"通道，
+    /// 即使遮罩窗口未成为 key window 也能结束），否则立即触发休息。
+    func toggleRestViaShortcut() {
+        if restController.stage.value != .idle {
+            Log.timer.info("Global shortcut: cancelling active rest")
+            restController.cancelRest()
+        } else {
+            triggerManualRest()
+        }
+    }
+
     /// 手动触发立即休息（用于开发菜单、全局快捷键、Onboarding 试用按钮）
     func triggerManualRest() {
         guard appState.isWorking else {

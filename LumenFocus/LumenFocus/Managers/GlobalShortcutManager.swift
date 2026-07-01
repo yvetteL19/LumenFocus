@@ -44,7 +44,7 @@ final class GlobalShortcutManager {
             { (_, _, _) -> OSStatus in
                 DispatchQueue.main.async {
                     Log.system.info("Global shortcut ⌘⌥E fired")
-                    TimerManager.shared.triggerManualRest()
+                    TimerManager.shared.toggleRestViaShortcut()
                 }
                 return noErr
             },

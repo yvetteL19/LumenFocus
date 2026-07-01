@@ -92,6 +92,13 @@ final class RestManager {
             window.orderFrontRegardless()
             overlayWindows.append(window)
         }
+
+        // 关键：菜单栏（accessory）App 必须先激活，遮罩窗口才能成为 key window
+        // 接收键盘事件，否则 ESC 收不到、用户被全屏遮罩困住。
+        NSApp.activate(ignoringOtherApps: true)
+        let keyWindow = overlayWindows.first(where: { $0.screen == NSScreen.main }) ?? overlayWindows.first
+        keyWindow?.makeKeyAndOrderFront(nil)
+        keyWindow?.makeFirstResponder(keyWindow)
     }
 
     // MARK: - Countdown
