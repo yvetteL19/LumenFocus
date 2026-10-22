@@ -68,9 +68,8 @@ final class TimerManager: ObservableObject {
     func triggerManualRest() {
         // Settings publishers are delivered on the next main-loop turn. An
         // immediate click on Rest now must still use the just-selected duration.
-        refreshConfiguration()
         if !engine.isStarted { engine.start() }
-        engine.beginRest()
+        engine.beginRest(using: Self.configuration())
         scheduleHeartbeat()
         synchronize()
         StatisticsManager.shared.flush()

@@ -12,6 +12,19 @@ final class TestCycleClock: CycleClock {
 }
 
 final class CycleEngineTests: XCTestCase {
+    func testImmediateRestUsesNewSettingsBeforePreferenceObserverDelivery() {
+        let clock = TestCycleClock()
+        let engine = CycleEngine(clock: clock, configuration: .init(workDuration: 2400, restDuration: 300))
+        engine.start()
+        engine.beginRest(using: .init(workDuration: 1200, restDuration: 20))
+        XCTAssertEqual(engine.snapshot.rest?.duration, 20)
+        clock.advance(23)
+        engine.tick()
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertEqual(engine.snapshot.remaining, 1200)
+        XCTAssertEqual(completedRests(engine.drainEvents()).count, 1)
+    }
+
     private func makeEngine(_ clock: TestCycleClock, work: TimeInterval = 2400,
                             immersive: Bool = false) -> CycleEngine {
         CycleEngine(clock: clock, configuration: .init(workDuration: work, restDuration: 20,

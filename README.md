@@ -30,6 +30,8 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 
 [测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试及通用 Release 构建。
 
+[本轮验收记录](docs/refactor-validation.md)列出已验证场景和正式发行前的设备验收范围。
+
 ## 当前边界
 
 前台应用规则不能确认正在通话、共享屏幕或全屏播放。音频素材和 Widget target 尚未交付；界面不展示相应功能。旧版重复周报已停用，避免发送过期快照。

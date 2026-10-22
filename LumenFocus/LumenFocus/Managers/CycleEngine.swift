@@ -201,7 +201,10 @@ final class CycleEngine {
         // Environmental suppression remains independent of the user's pause.
     }
 
-    func beginRest() {
+    func beginRest(using latestConfiguration: Configuration? = nil) {
+        // A user action may arrive before an asynchronous preferences observer.
+        // Apply its current settings atomically before creating the session.
+        if let latestConfiguration { configure(latestConfiguration) }
         observe(allowAutomaticRest: false)
         guard isStarted, !environment.isAway, restSession == nil else { return }
         manualPauseDeadline = nil
