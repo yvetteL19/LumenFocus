@@ -23,7 +23,7 @@ final class StatisticsWindowManager {
 
         let controller = NSHostingController(rootView: StatisticsView())
         let w = NSWindow(contentViewController: controller)
-        w.title = "统计"
+        w.title = L("统计")
         w.setContentSize(NSSize(width: 600, height: 560))
         w.center()
         w.styleMask = [.titled, .closable, .miniaturizable]

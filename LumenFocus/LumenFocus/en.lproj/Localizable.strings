@@ -61,7 +61,7 @@
 "设置…" = "Settings…";
 "退出 LumenFocus" = "Quit LumenFocus";
 "%d 次 · %@" = "%d rests · %@";
-"%@ · %d 次" = "%@ · %d rests";
+"%@ · %d 次" = "%@ · breaks: %d";
 
 // MARK: - Menu bar context menu (AppKit)
 

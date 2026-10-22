@@ -24,6 +24,7 @@ final class TimerManager: ObservableObject {
     }
 
     func start() {
+        refreshConfiguration()
         engine.start()
         scheduleHeartbeat()
         synchronize()
@@ -65,6 +66,9 @@ final class TimerManager: ObservableObject {
     }
 
     func triggerManualRest() {
+        // Settings publishers are delivered on the next main-loop turn. An
+        // immediate click on Rest now must still use the just-selected duration.
+        refreshConfiguration()
         if !engine.isStarted { engine.start() }
         engine.beginRest()
         scheduleHeartbeat()
@@ -105,6 +109,11 @@ final class TimerManager: ObservableObject {
                                          automaticallyStartsRest: settings.reminderMode == .immersive,
                                          fadeInDuration: RestController.fadeInDuration,
                                          fadeOutDuration: RestController.fadeOutDuration)
+    }
+
+    private func refreshConfiguration() {
+        let latest = Self.configuration()
+        if engine.configuration != latest { engine.configure(latest) }
     }
 
     private func setupSubscriptions() {

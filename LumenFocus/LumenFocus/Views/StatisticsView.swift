@@ -23,7 +23,7 @@ struct StatisticsView: View {
                 HStack(spacing: 12) {
                     StatCard(label: "完成休息", value: String(format: L("%d 次"), weeklyStats.reduce(0) { $0 + $1.restCount }))
                     StatCard(label: "计时工作", value: formatWorkDuration(weeklyStats.reduce(0) { $0 + $1.workDuration }))
-                    StatCard(label: "记录天数", value: String(format: L("%d 天"), weeklyStats.count))
+                    StatCard(label: "记录天数", value: String(weeklyStats.count))
                 }
 
                 if ninetyDay.isEmpty {
