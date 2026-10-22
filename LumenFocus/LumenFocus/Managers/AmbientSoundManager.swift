@@ -89,8 +89,11 @@ final class AmbientSoundManager {
         p.setVolume(0, fadeDuration: 0.5)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.6) { [weak self] in
             p.stop()
-            self?.player = nil
-            self?.currentTrack = .off
+            // A newer rest may already own another player by the time this fades out.
+            if self?.player === p {
+                self?.player = nil
+                self?.currentTrack = .off
+            }
         }
     }
 }

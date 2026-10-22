@@ -1,404 +1,222 @@
-//
-//  OnboardingView.swift
-//  LumenFocus
-//
-//  Four-step onboarding flow:
-//    1. Welcome
-//    2. Try the gradual dimming (10s demo)
-//    3. Choose your rhythm (presets + custom)
-//    4. Launch options + notification permission
-//
-
 import SwiftUI
-import UserNotifications
 
-/// 节奏预设
-enum CadencePreset: Hashable {
-    /// 严格 20-20-20 法则
-    case strict
-    /// 默认 40 / 5 — 推荐
-    case `default`
-    /// 深度工作 50 / 10
-    case deepWork
-    /// 自定义
-    case custom
-
+/// Presets state exactly the durations that will be applied.
+enum CadencePreset: Hashable, CaseIterable {
+    case strict, `default`, deepWork, custom
     var title: String {
         switch self {
-        case .strict:   return "20-20-20"
-        case .default:  return "默认"
-        case .deepWork: return "深度工作"
-        case .custom:   return "自定义"
+        case .strict: return "短暂离屏"
+        case .default: return "规律休息"
+        case .deepWork: return "较长间隔"
+        case .custom: return "自定义"
         }
     }
-
     var subtitle: String {
         switch self {
-        case .strict:   return "20 分钟 / 20 秒（医学共识）"
-        case .default:  return "40 分钟 / 5 分钟"
-        case .deepWork: return "50 分钟 / 10 分钟"
-        case .custom:   return "自己设定"
+        case .strict: return "每 20 分钟，休息 20 秒"
+        case .default: return "每 40 分钟，休息 5 分钟"
+        case .deepWork: return "每 50 分钟，休息 10 分钟"
+        case .custom: return "自己设定"
         }
     }
-
     var work: Int {
-        switch self {
-        case .strict:   return 20
-        case .default:  return 40
-        case .deepWork: return 50
-        case .custom:   return AppSettings.shared.workDurationMinutes
-        }
+        switch self { case .strict: return 20; case .default: return 40; case .deepWork: return 50; case .custom: return 20 }
     }
-
     var rest: Int {
-        switch self {
-        case .strict:   return 1     // 1 分钟（最低值；严格 20-20-20 其实是 20 秒，但 AppSettings 最小 1 分钟）
-        case .default:  return 5
-        case .deepWork: return 10
-        case .custom:   return AppSettings.shared.restDurationMinutes
-        }
+        switch self { case .strict: return 20; case .default: return 300; case .deepWork: return 600; case .custom: return 20 }
     }
 }
 
 struct OnboardingView: View {
-    @State private var step: Int = 1
-    @State private var selectedPreset: CadencePreset = .default
-    @State private var customWork: Double = 40
-    @State private var customRest: Double = 5
-    @State private var launchAtLogin: Bool = true
+    @State private var step = 1
+    @State private var selectedPreset: CadencePreset = .strict
+    @State private var customWork = 20.0
+    @State private var customRest = 20
+    @State private var reminderMode: ReminderMode = .gentle
+    @State private var launchAtLogin = false
     @State private var isPlayingDemo = false
-
-    private let totalSteps = 4
+    @State private var launchError = false
 
     var body: some View {
         VStack(spacing: 0) {
-            // 步骤指示器
-            stepIndicator
-                .padding(.top, 24)
-                .padding(.bottom, 12)
-
-            // 主要内容
-            Group {
-                switch step {
-                case 1: stepWelcome
-                case 2: stepDemo
-                case 3: stepPreset
-                default: stepPermissions
+            HStack {
+                Text(verbatim: String(format: L("第 %d 步，共 4 步"), step))
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Spacer()
+                Button("使用当前设置开始") { OnboardingWindowManager.shared.close() }
+                    .buttonStyle(.borderless)
+                    .disabled(isPlayingDemo)
+            }
+            .padding(24)
+            Divider()
+            // Only the content scrolls. Navigation always remains reachable, including
+            // English copy and the expanded custom cadence on smaller displays.
+            ScrollView {
+                VStack(alignment: .leading, spacing: 22) {
+                    switch step {
+                    case 1: welcome
+                    case 2: demo
+                    case 3: cadence
+                    default: options
+                    }
                 }
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .padding(28)
             }
-            .frame(maxWidth: .infinity, maxHeight: .infinity)
-            .padding(.horizontal, 32)
-
-            // 底部导航
-            navigationBar
-                .padding(24)
-        }
-        .frame(width: 520, height: 480)
-        .background(Color.LumenFocus.backgroundPrimary)
-    }
-
-    // MARK: - Step indicator
-
-    private var stepIndicator: some View {
-        HStack(spacing: 8) {
-            ForEach(1...totalSteps, id: \.self) { i in
-                Capsule()
-                    .fill(i <= step ? Color.LumenFocus.ink : Color.LumenFocus.textTertiary)
-                    .frame(width: i == step ? 24 : 8, height: 8)
-                    .animation(.easeInOut(duration: 0.2), value: step)
-            }
-        }
-    }
-
-    // MARK: - Step 1: Welcome
-
-    private var stepWelcome: some View {
-        VStack(spacing: 24) {
-            Spacer()
-            Text("欢迎使用 LumenFocus")
-                .font(.system(size: 28, weight: .bold))
-                .foregroundColor(Color.LumenFocus.textPrimary)
-
-            VStack(spacing: 16) {
-                FeatureRow(systemImage: "eye.fill", text: "屏幕缓慢渐暗代替闹钟，温柔提醒护眼")
-                FeatureRow(systemImage: "wand.and.stars", text: "视频会议、演示、离开时自动避让")
-                FeatureRow(systemImage: "chart.bar.fill", text: "本地记录用眼数据，无任何上传")
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity)
-            .background(Color.LumenFocus.backgroundSecondary)
-            .cornerRadius(8)
-            Spacer()
-        }
-    }
-
-    // MARK: - Step 2: Demo
-
-    private var stepDemo: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Text("先感受一下")
-                .font(.system(size: 26, weight: .bold))
-                .foregroundColor(Color.LumenFocus.textPrimary)
-
-            Text("到了该休息的时刻，LumenFocus 会用 20 秒让屏幕缓慢暗下来。\n点下面试 10 秒压缩版。")
-                .font(.system(size: 14))
-                .multilineTextAlignment(.center)
-                .foregroundColor(Color.LumenFocus.textSecondary)
-                .lineSpacing(4)
-
-            Button(action: playDemo) {
-                HStack(spacing: 8) {
-                    Image(systemName: isPlayingDemo ? "hourglass" : "play.circle.fill")
-                    Text(isPlayingDemo ? "演示中…" : "亲身感受一下（10 秒）")
-                        .font(.system(size: 16, weight: .semibold))
+            Divider()
+            HStack {
+                if step > 1 { Button("上一步") { step -= 1 } }
+                Spacer()
+                Button {
+                    if step < 4 { step += 1 } else { completeOnboarding() }
+                } label: {
+                    Text(verbatim: L(step == 4 ? "开始提醒" : "继续"))
                 }
-                .foregroundColor(Color.LumenFocus.onInk)
-                .frame(width: 240, height: 48)
-                .background(Color.LumenFocus.ink)
-                .cornerRadius(8)
+                .keyboardShortcut(.defaultAction)
+                .buttonStyle(.borderedProminent)
+                .tint(Color.LumenFocus.ink)
             }
-            .buttonStyle(.plain)
             .disabled(isPlayingDemo)
-            .opacity(isPlayingDemo ? 0.6 : 1)
+            .padding(24)
+        }
+        .frame(minWidth: 460, minHeight: 440)
+        .background(Color.LumenFocus.backgroundPrimary)
+        .onAppear {
+            let settings = AppSettings.shared
+            customWork = Double(settings.workDurationMinutes)
+            customRest = settings.restDurationSeconds
+            selectedPreset = CadencePreset.allCases.first(where: { $0 != .custom && $0.work == settings.workDurationMinutes && $0.rest == settings.restDurationSeconds }) ?? .custom
+            reminderMode = settings.reminderMode
+            launchAtLogin = LaunchAtLoginManager.shared.isEnabled()
+        }
+    }
 
-            Text("演示会用与正式休息相同的渐暗效果，但不计入今日统计。")
+    private var welcome: some View {
+        VStack(alignment: .leading, spacing: 22) {
+            Text("给工作留一点离屏时间")
+                .font(.system(size: 27, weight: .medium))
+            feature("eye", "到点轻轻提醒，由你决定何时开始休息")
+            feature("hand.raised", "随时延后、暂停或结束，不会困住你")
+            feature("internaldrive", "工作与休息记录保存在这台 Mac 上")
+            Text("完成设置后，你可以从屏幕顶部的菜单栏找到 LumenFocus。")
+                .foregroundColor(.secondary)
+        }
+    }
+
+    private var demo: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("先体验一下（可选）").font(.system(size: 25, weight: .medium))
+            Text("轻提醒不会遮挡工作。主动开始休息后，屏幕会渐暗，提醒你看向屏幕之外。")
+            Text("这个 10 秒演示只显示在当前屏幕；正式休息覆盖所有屏幕，每块屏幕都有结束按钮。")
+                .foregroundColor(.secondary)
+            Button {
+                isPlayingDemo = true
+                OnboardingDemo.shared.play(totalDuration: 10) { isPlayingDemo = false }
+            } label: {
+                Label { Text(verbatim: L(isPlayingDemo ? "演示中…" : "体验 10 秒演示")) } icon: { Image(systemName: "play.circle") }
+            }
+            .buttonStyle(.borderedProminent)
+            .tint(Color.LumenFocus.ink)
+            .disabled(isPlayingDemo)
+            Text("演示中可按 Esc 或点击结束。不计入休息记录；也可直接继续。")
                 .font(.system(size: 12))
-                .foregroundColor(Color.LumenFocus.textTertiary)
-                .padding(.top, 4)
-            Spacer()
+                .foregroundColor(.secondary)
         }
     }
 
-    // MARK: - Step 3: Preset
-
-    private var stepPreset: some View {
-        VStack(spacing: 16) {
-            Spacer().frame(height: 8)
-            Text("选择你的节奏")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(Color.LumenFocus.textPrimary)
-
-            VStack(spacing: 10) {
-                presetCard(.default)
-                presetCard(.strict)
-                presetCard(.deepWork)
-                presetCard(.custom)
-            }
-
-            if selectedPreset == .custom {
-                VStack(alignment: .leading, spacing: 8) {
-                    HStack {
-                        Text("工作 \(Int(customWork)) 分钟")
-                            .font(.system(size: 13))
-                            .foregroundColor(Color.LumenFocus.textSecondary)
-                        Slider(value: $customWork, in: 15...120, step: 5)
-                            .accentColor(Color.LumenFocus.ink)
+    private var cadence: some View {
+        VStack(alignment: .leading, spacing: 14) {
+            Text("选择你的节奏").font(.system(size: 25, weight: .medium))
+            ForEach(CadencePreset.allCases, id: \.self) { preset in
+                Button { selectedPreset = preset } label: {
+                    HStack(spacing: 12) {
+                        Image(systemName: selectedPreset == preset ? "checkmark.circle.fill" : "circle")
+                            .accessibilityHidden(true)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(verbatim: L(preset.title)).font(.system(size: 15, weight: .medium))
+                            Text(verbatim: L(preset.subtitle)).font(.system(size: 12)).foregroundColor(.secondary)
+                        }
+                        Spacer()
                     }
-                    HStack {
-                        Text("休息 \(Int(customRest)) 分钟")
-                            .font(.system(size: 13))
-                            .foregroundColor(Color.LumenFocus.textSecondary)
-                        Slider(value: $customRest, in: 1...15, step: 1)
-                            .accentColor(Color.LumenFocus.ink)
-                    }
+                    .padding(13)
+                    .contentShape(Rectangle())
+                    .background(selectedPreset == preset ? Color.LumenFocus.backgroundSecondary : .clear)
+                    .cornerRadius(8)
+                    .overlay(RoundedRectangle(cornerRadius: 8).stroke(Color.LumenFocus.border))
                 }
-                .padding(12)
-                .background(Color.LumenFocus.backgroundSecondary)
-                .cornerRadius(8)
+                .buttonStyle(.plain)
+                .accessibilityAddTraits(selectedPreset == preset ? .isSelected : [])
             }
-            Spacer()
-        }
-    }
-
-    private func presetCard(_ preset: CadencePreset) -> some View {
-        let selected = (selectedPreset == preset)
-        return Button(action: { selectedPreset = preset }) {
-            HStack(spacing: 12) {
-                Image(systemName: selected ? "checkmark.circle.fill" : "circle")
-                    .font(.system(size: 18))
-                    .foregroundColor(selected ? Color.LumenFocus.ink : Color.LumenFocus.textSecondary)
-                VStack(alignment: .leading, spacing: 2) {
-                    HStack(spacing: 6) {
-                        Text(verbatim: L(preset.title))
-                            .font(.system(size: 15, weight: .semibold))
-                            .foregroundColor(Color.LumenFocus.textPrimary)
-                        if preset == .default {
-                            Text("推荐")
-                                .font(.system(size: 10, weight: .semibold))
-                                .foregroundColor(Color.LumenFocus.onInk)
-                                .padding(.horizontal, 6)
-                                .padding(.vertical, 2)
-                                .background(Color.LumenFocus.ink)
-                                .cornerRadius(4)
+            if selectedPreset == .custom {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text(verbatim: String(format: L("工作 %d 分钟"), Int(customWork)))
+                    Slider(value: $customWork, in: 15...120, step: 5)
+                        .tint(Color.LumenFocus.ink)
+                        .accessibilityLabel(Text("工作时长"))
+                        .accessibilityValue(Text(verbatim: String(format: L("%d 分钟"), Int(customWork))))
+                    Picker("休息时长", selection: $customRest) {
+                        ForEach(restDurationChoices(including: customRest), id: \.self) { seconds in
+                            Text(verbatim: restDurationText(seconds)).tag(seconds)
                         }
                     }
-                    Text(verbatim: L(preset.subtitle))
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.LumenFocus.textSecondary)
                 }
-                Spacer()
+                .padding(.top, 6)
             }
-            .padding(12)
-            .frame(maxWidth: .infinity)
-            .background(selected ? Color.LumenFocus.backgroundSecondary : Color.clear)
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Color.LumenFocus.ink : Color.LumenFocus.border, lineWidth: selected ? 1.5 : 1)
-            )
-        }
-        .buttonStyle(.plain)
-    }
-
-    // MARK: - Step 4: Permissions
-
-    private var stepPermissions: some View {
-        VStack(spacing: 20) {
-            Spacer()
-            Text("最后一步")
-                .font(.system(size: 24, weight: .bold))
-                .foregroundColor(Color.LumenFocus.textPrimary)
-
-            VStack(alignment: .leading, spacing: 16) {
-                Toggle(isOn: $launchAtLogin) {
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text("开机时自动启动")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(Color.LumenFocus.textPrimary)
-                        Text("每次开机自动在菜单栏待命")
-                            .font(.system(size: 12))
-                            .foregroundColor(Color.LumenFocus.textSecondary)
-                    }
-                }
-                .toggleStyle(.switch)
-
-                Divider()
-
-                VStack(alignment: .leading, spacing: 6) {
-                    HStack(spacing: 8) {
-                        Image(systemName: "bell.fill")
-                            .foregroundColor(Color.LumenFocus.gray800)
-                        Text("通知权限")
-                            .font(.system(size: 15, weight: .medium))
-                            .foregroundColor(Color.LumenFocus.textPrimary)
-                    }
-                    Text("用于每周日 20:00 发送护眼周报。完全本地生成，不会推送任何广告。")
-                        .font(.system(size: 12))
-                        .foregroundColor(Color.LumenFocus.textSecondary)
-                }
-            }
-            .padding(20)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(Color.LumenFocus.backgroundSecondary)
-            .cornerRadius(8)
-            Spacer()
         }
     }
 
-    // MARK: - Navigation
-
-    private var navigationBar: some View {
-        HStack {
-            if step > 1 {
-                Button("上一步") { step -= 1 }
-                    .buttonStyle(.plain)
-                    .foregroundColor(Color.LumenFocus.textSecondary)
+    private var options: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            Text("让提醒适合你的工作").font(.system(size: 25, weight: .medium))
+            Picker("提醒方式", selection: $reminderMode) {
+                ForEach(ReminderMode.allCases) { mode in Text(verbatim: mode.displayName).tag(mode) }
             }
-            Spacer()
-            Button(action: handlePrimary) {
-                Text(verbatim: L(primaryButtonTitle))
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundColor(Color.LumenFocus.onInk)
-                    .frame(minWidth: 140, minHeight: 36)
-                    .padding(.horizontal, 16)
-                    .background(Color.LumenFocus.ink)
-                    .cornerRadius(8)
+            Text(verbatim: L(reminderMode == .gentle ? "到点显示轻提醒。你点击开始后，才会进入离屏休息。" : "到点自动渐暗所有屏幕。休息全程可结束或延后。"))
+                .foregroundColor(.secondary)
+            Toggle("开机时自动启动", isOn: $launchAtLogin)
+            Text("你可以稍后在设置中更改。无需通知权限，也能收到休息提醒。")
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            if launchError {
+                Text("系统未能应用开机启动设置。请在系统设置的登录项中检查；当前状态未被更改。")
+                    .foregroundColor(.secondary)
+                Button("继续并稍后设置") { finishOnboarding() }
             }
-            .buttonStyle(.plain)
-            .disabled(isPlayingDemo)
-            .opacity(isPlayingDemo ? 0.5 : 1)
         }
     }
 
-    private var primaryButtonTitle: String {
-        step == totalSteps ? "开始守护我的眼睛" : "继续"
-    }
-
-    private func handlePrimary() {
-        if step < totalSteps {
-            step += 1
-        } else {
-            completeOnboarding()
-        }
-    }
-
-    // MARK: - Actions
-
-    private func playDemo() {
-        guard !isPlayingDemo else { return }
-        isPlayingDemo = true
-        OnboardingDemo.shared.play(totalDuration: 10) {
-            isPlayingDemo = false
+    private func feature(_ symbol: String, _ key: String) -> some View {
+        Label { Text(verbatim: L(key)).fixedSize(horizontal: false, vertical: true) } icon: {
+            Image(systemName: symbol).frame(width: 24).foregroundColor(Color.LumenFocus.ink)
         }
     }
 
     private func completeOnboarding() {
-        // 1. 应用预设到 AppSettings
-        let settings = AppSettings.shared
-        if selectedPreset == .custom {
-            settings.workDurationMinutes = Int(customWork)
-            settings.restDurationMinutes = Int(customRest)
-        } else {
-            settings.workDurationMinutes = selectedPreset.work
-            settings.restDurationMinutes = selectedPreset.rest
+        let manager = LaunchAtLoginManager.shared
+        if manager.isEnabled() != launchAtLogin {
+            let success = launchAtLogin ? manager.enable() : manager.disable()
+            guard success, manager.isEnabled() == launchAtLogin else { launchError = true; return }
         }
-        settings.launchAtLogin = launchAtLogin
-        settings.hasCompletedOnboarding = true
-
-        // 2. 后台处理开机自启
-        if launchAtLogin {
-            DispatchQueue.global(qos: .background).async {
-                _ = LaunchAtLoginManager.shared.enable()
-            }
-        }
-
-        // 3. 先关闭引导窗口，再请求通知权限——否则系统授权弹窗可能被引导窗
-        //    挡住，看起来像"卡死"。
-        OnboardingWindowManager.shared.close()
-
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) {
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert, .badge]) { granted, error in
-                if let error {
-                    Log.notifications.error("Notification auth error: \(error.localizedDescription, privacy: .public)")
-                } else {
-                    Log.notifications.info("Notification authorization granted=\(granted)")
-                }
-            }
-        }
+        finishOnboarding()
     }
 
-    // MARK: - Subviews
-
-    struct FeatureRow: View {
-        let systemImage: String
-        let text: String
-
-        var body: some View {
-            HStack(alignment: .top, spacing: 12) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18))
-                    .foregroundColor(Color.LumenFocus.gray800)
-                    .frame(width: 24, alignment: .leading)
-                Text(text)
-                    .font(.system(size: 15))
-                    .lineSpacing(4)
-                    .foregroundColor(Color.LumenFocus.textPrimary)
-                Spacer()
-            }
-        }
+    private func finishOnboarding() {
+        let settings = AppSettings.shared
+        settings.workDurationMinutes = selectedPreset == .custom ? Int(customWork) : selectedPreset.work
+        settings.restDurationSeconds = selectedPreset == .custom ? customRest : selectedPreset.rest
+        settings.reminderMode = reminderMode
+        settings.launchAtLogin = LaunchAtLoginManager.shared.isEnabled()
+        settings.hasCompletedOnboarding = true
+        OnboardingWindowManager.shared.close()
     }
 }
 
-#Preview {
-    OnboardingView()
+func restDurationChoices(including current: Int) -> [Int] {
+    Array(Set([20, 30, 60, 120, 300, 600, 900, current])).sorted()
+}
+
+func restDurationText(_ seconds: Int) -> String {
+    if seconds % 60 == 0 { return String(format: L("%d 分钟"), seconds / 60) }
+    return String(format: L("%d 秒"), seconds)
 }

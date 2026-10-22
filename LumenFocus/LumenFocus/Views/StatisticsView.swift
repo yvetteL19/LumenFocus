@@ -1,11 +1,3 @@
-//
-//  StatisticsView.swift
-//  LumenFocus
-//
-//  Monthly heatmap (GitHub contributions style, black-and-white), KPI cards,
-//  week chart, full CSV export.
-//
-
 import SwiftUI
 import Charts
 import UniformTypeIdentifiers
@@ -13,40 +5,42 @@ import UniformTypeIdentifiers
 struct StatisticsView: View {
     @State private var weeklyStats: [DailyStatistics] = []
     @State private var ninetyDay: [DailyStatistics] = []
-    @State private var currentStreak: Int = 0
-    @State private var longestStreak: Int = 0
-    @State private var maxRestCountInWindow: Int = 1
+    @State private var exportError: String?
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 24) {
+            VStack(alignment: .leading, spacing: 20) {
                 Text("统计")
                     .font(.system(size: 22, weight: .semibold))
                     .foregroundColor(Color.LumenFocus.textPrimary)
+                Text("仅统计计时工作与完成的休息，不代表健康改善。")
+                    .font(.system(size: 12))
+                    .foregroundColor(Color.LumenFocus.textSecondary)
 
+                Text("近 7 天")
+                    .font(.system(size: 13, weight: .medium))
+                    .foregroundColor(Color.LumenFocus.textSecondary)
                 HStack(spacing: 12) {
-                    StatCard(label: "当前连续", value: String(format: L("%d 天"), currentStreak))
-                    StatCard(label: "最长连续", value: String(format: L("%d 天"), longestStreak))
-                    StatCard(label: "本周护眼", value: String(format: L("%d 次"), weeklyStats.reduce(0) { $0 + $1.restCount }))
-                    StatCard(label: "本周用眼", value: StatisticsManager.shared.getWeeklyWorkDurationFormatted())
+                    StatCard(label: "完成休息", value: String(format: L("%d 次"), weeklyStats.reduce(0) { $0 + $1.restCount }))
+                    StatCard(label: "计时工作", value: formatWorkDuration(weeklyStats.reduce(0) { $0 + $1.workDuration }))
+                    StatCard(label: "记录天数", value: String(format: L("%d 天"), weeklyStats.count))
                 }
 
-                if hasAnyRest {
+                if ninetyDay.isEmpty {
+                    emptyState
+                } else {
                     weekChartSection
                     heatmapSection
-                } else {
-                    emptyState
                 }
 
-                Spacer(minLength: 12)
-
                 HStack {
-                    Text("数据完全本地存储 · 卸载即删除")
+                    Text("本地保存最近 90 天统计 · 导出文件由你管理")
                         .font(.system(size: 11))
-                        .foregroundColor(Color.LumenFocus.textTertiary)
+                        .foregroundColor(Color.LumenFocus.textSecondary)
                     Spacer()
                     Button("导出 CSV") { exportCSV() }
                         .buttonStyle(.bordered)
+                        .disabled(ninetyDay.isEmpty)
                 }
             }
             .padding(24)
@@ -54,121 +48,101 @@ struct StatisticsView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.LumenFocus.backgroundPrimary)
         .onAppear { refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: StatisticsManager.didChangeNotification)) { _ in refresh() }
+        .alert("导出失败", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
+            Button("好", role: .cancel) { exportError = nil }
+        } message: {
+            Text(exportError ?? "")
+        }
     }
-
-    /// 是否已有任何护眼记录（用于决定显示图表还是空状态）
-    private var hasAnyRest: Bool {
-        longestStreak > 0 || ninetyDay.contains { $0.restCount > 0 }
-    }
-
-    // MARK: - Sections
 
     private var emptyState: some View {
         VStack(spacing: 12) {
-            Image(systemName: "eye")
-                .font(.system(size: 40, weight: .light))
+            Image(systemName: "clock")
+                .font(.system(size: 36, weight: .light))
                 .foregroundColor(Color.LumenFocus.textTertiary)
-            Text("还没有护眼记录")
+            Text("还没有活动记录")
                 .font(.system(size: 15, weight: .medium))
                 .foregroundColor(Color.LumenFocus.textSecondary)
-            Text("完成第一次休息后，这里会出现你的趋势图和热力图。")
+            Text("开始计时或完成一次休息后，这里会显示你的记录。")
                 .font(.system(size: 12))
                 .multilineTextAlignment(.center)
-                .foregroundColor(Color.LumenFocus.textTertiary)
+                .foregroundColor(Color.LumenFocus.textSecondary)
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 48)
     }
 
     private var weekChartSection: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            Text("近 7 日")
-                .font(.system(size: 13, weight: .medium))
-                .foregroundColor(Color.LumenFocus.textSecondary)
-
-            Chart(weeklyStats, id: \.date) { stats in
-                BarMark(
-                    x: .value("日", shortWeekday(stats.date)),
-                    y: .value("次数", stats.restCount)
-                )
-                .foregroundStyle(Color.LumenFocus.ink)
-                .cornerRadius(3)
+        VStack(alignment: .leading, spacing: 8) {
+            if weeklyStats.isEmpty {
+                Text("无记录")
+                    .foregroundColor(Color.LumenFocus.textSecondary)
+                    .frame(maxWidth: .infinity, minHeight: 120)
+            } else {
+                Chart(weeklyStats, id: \.date) { stats in
+                    if let date = StatisticsDates.parse(stats.date) {
+                        BarMark(x: .value(L("日"), date, unit: .day),
+                                y: .value(L("完成休息"), stats.restCount))
+                            .foregroundStyle(Color.LumenFocus.ink)
+                            .cornerRadius(3)
+                            .accessibilityLabel(Text(stats.date))
+                            .accessibilityValue(Text(String(format: L("%d 次"), stats.restCount)))
+                    }
+                }
+                .chartXScale(domain: weekDomain)
+                .chartXAxis { AxisMarks(values: .stride(by: .day)) { value in
+                    AxisValueLabel(format: .dateTime.weekday(.narrow))
+                } }
+                .frame(height: 140)
             }
-            .frame(height: 140)
         }
+    }
+
+    private var weekDomain: ClosedRange<Date> {
+        let calendar = Calendar.current
+        let today = calendar.startOfDay(for: Date())
+        let start = calendar.date(byAdding: .day, value: -6, to: today) ?? today
+        let end = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        return start...end
     }
 
     private var heatmapSection: some View {
         VStack(alignment: .leading, spacing: 8) {
-            HStack {
-                Text("近 90 日热力图")
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color.LumenFocus.textSecondary)
-                Spacer()
-                Text("浅 → 深 = 0 → 最多")
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.LumenFocus.textTertiary)
-            }
-
-            HeatmapGrid(stats: ninetyDay, max: maxRestCountInWindow)
-                .frame(maxWidth: .infinity)
+            Text("近 90 天记录")
+                .font(.system(size: 13, weight: .medium))
+                .foregroundColor(Color.LumenFocus.textSecondary)
+            HeatmapGrid(stats: ninetyDay)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            Text("浅 → 深 = 完成休息由少到多")
+                .font(.system(size: 11))
+                .foregroundColor(Color.LumenFocus.textSecondary)
         }
-    }
-
-    // MARK: - Helpers
-
-    private func shortWeekday(_ dateKey: String) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        guard let date = formatter.date(from: dateKey) else { return "" }
-        let calendar = Calendar.current
-        let weekday = calendar.component(.weekday, from: date)
-        let symbols = calendar.veryShortStandaloneWeekdaySymbols
-        return symbols[(weekday - 1 + 7) % symbols.count]
     }
 
     private func refresh() {
         weeklyStats = StatisticsManager.shared.getWeeklyStatistics()
         ninetyDay = StatisticsManager.shared.getRecentStatistics(days: 90)
-        currentStreak = StatisticsManager.shared.getCurrentStreak()
-        longestStreak = StatisticsManager.shared.getLongestStreak()
-        maxRestCountInWindow = max(1, ninetyDay.map(\.restCount).max() ?? 1)
     }
-
-    // MARK: - CSV export
 
     private func exportCSV() {
         let panel = NSSavePanel()
-        let dateLabel = ISO8601DateFormatter.string(from: Date(), timeZone: .current, formatOptions: [.withYear, .withMonth, .withDay, .withDashSeparatorInDate])
-        panel.nameFieldStringValue = "lumenfocus-stats-\(dateLabel).csv"
-        if let csv = UTType(filenameExtension: "csv") {
-            panel.allowedContentTypes = [csv]
-        }
+        panel.nameFieldStringValue = "lumenfocus-stats-\(StatisticsDates.key(Date())).csv"
+        if let csv = UTType(filenameExtension: "csv") { panel.allowedContentTypes = [csv] }
         guard panel.runModal() == .OK, let url = panel.url else { return }
-
         let all = StatisticsManager.shared.getAllStatistics()
-        var rows = ["date,rest_count,work_seconds,work_formatted"]
-        for s in all {
-            let formatted = formattedDuration(s.workDuration)
-            rows.append("\(s.date),\(s.restCount),\(s.workDuration),\(formatted)")
+        let rows = ["date,completed_rest_count,timed_work_seconds"] + all.map {
+            "\($0.date),\($0.restCount),\($0.workDuration)"
         }
-        let csv = rows.joined(separator: "\n") + "\n"
         do {
-            try csv.write(to: url, atomically: true, encoding: .utf8)
-            Log.stats.info("Exported CSV (\(all.count) rows) to \(url.path, privacy: .public)")
+            try (rows.joined(separator: "\n") + "\n").write(to: url, atomically: true, encoding: .utf8)
+            Log.stats.info("Exported statistics CSV (\(all.count) recorded days)")
         } catch {
+            exportError = error.localizedDescription
             Log.stats.error("CSV export failed: \(error.localizedDescription, privacy: .public)")
         }
     }
-
-    private func formattedDuration(_ seconds: Int) -> String {
-        let h = seconds / 3600
-        let m = (seconds % 3600) / 60
-        return h > 0 ? "\(h)h\(m)m" : "\(m)m"
-    }
 }
-
-// MARK: - Stat card
 
 private struct StatCard: View {
     let label: String
@@ -190,101 +164,77 @@ private struct StatCard: View {
     }
 }
 
-// MARK: - Heatmap
-
 private struct HeatmapGrid: View {
     let stats: [DailyStatistics]
-    let max: Int
 
-    private let cellSize: CGFloat = 14
-    private let spacing: CGFloat = 3
+    private struct Day {
+        let key: String
+        let record: DailyStatistics?
+    }
 
     var body: some View {
-        // 把 90 天数据切成 7×N 网格：行是周日~周六，列是周
-        let grouped = groupByWeek(stats)
-        VStack(alignment: .leading, spacing: spacing) {
+        let cells = calendarCells()
+        let columns = (cells.count + 6) / 7
+        VStack(alignment: .leading, spacing: 3) {
             ForEach(0..<7, id: \.self) { row in
-                HStack(spacing: spacing) {
-                    ForEach(grouped.indices, id: \.self) { col in
-                        let week = grouped[col]
-                        let stats = row < week.count ? week[row] : nil
+                HStack(spacing: 3) {
+                    ForEach(0..<columns, id: \.self) { column in
+                        let index = column * 7 + row
+                        let day = index < cells.count ? cells[index] : nil
                         RoundedRectangle(cornerRadius: 3)
-                            .fill(colorFor(stats))
-                            .frame(width: cellSize, height: cellSize)
-                            .help(tooltip(for: stats))
+                            .fill(color(for: day))
+                            .frame(width: 14, height: 14)
+                            .help(tooltip(for: day))
+                            .accessibilityLabel(Text(tooltip(for: day)))
+                            .accessibilityHidden(day == nil)
                     }
                 }
             }
         }
     }
 
-    /// 按周分组（每个内层数组是周日~周六 7 天，靠 weekday 对齐）
-    private func groupByWeek(_ stats: [DailyStatistics]) -> [[DailyStatistics?]] {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
+    /// Calendar placeholders remain nil records, including days before first use.
+    private func calendarCells() -> [Day?] {
         let calendar = Calendar.current
-
-        // 把 stats 按 date 解析成 (Date, DailyStatistics) 列表
-        let dated: [(Date, DailyStatistics)] = stats.compactMap { s in
-            guard let d = formatter.date(from: s.date) else { return nil }
-            return (d, s)
+        let today = calendar.startOfDay(for: Date())
+        guard let first = calendar.date(byAdding: .day, value: -89, to: today) else { return [] }
+        let leading = (calendar.component(.weekday, from: first) - calendar.firstWeekday + 7) % 7
+        let byDay = Dictionary(stats.map { ($0.date, $0) }, uniquingKeysWith: { _, newer in newer })
+        var cells: [Day?] = Array(repeating: nil, count: leading)
+        for offset in 0..<90 {
+            guard let date = calendar.date(byAdding: .day, value: offset, to: first) else { continue }
+            let key = StatisticsDates.key(date)
+            cells.append(Day(key: key, record: byDay[key]))
         }
-        guard let first = dated.first?.0 else { return [] }
-
-        // 找到第一周的起点（周日）
-        let firstWeekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: first))!
-        let last = dated.last?.0 ?? Date()
-        let lastWeekStart = calendar.date(from: calendar.dateComponents([.yearForWeekOfYear, .weekOfYear], from: last))!
-        let totalWeeks = (calendar.dateComponents([.weekOfYear], from: firstWeekStart, to: lastWeekStart).weekOfYear ?? 0) + 1
-
-        var statsByKey: [String: DailyStatistics] = [:]
-        for s in stats { statsByKey[s.date] = s }
-
-        var weeks: [[DailyStatistics?]] = []
-        for w in 0..<totalWeeks {
-            guard let weekStart = calendar.date(byAdding: .weekOfYear, value: w, to: firstWeekStart) else { continue }
-            var week: [DailyStatistics?] = []
-            for d in 0..<7 {
-                if let day = calendar.date(byAdding: .day, value: d, to: weekStart) {
-                    let key = formatter.string(from: day)
-                    week.append(statsByKey[key])
-                } else {
-                    week.append(nil)
-                }
-            }
-            weeks.append(week)
-        }
-        return weeks
+        return cells
     }
 
-    private func colorFor(_ stats: DailyStatistics?) -> Color {
-        // Use an opacity ramp over the dynamic "ink" so the heatmap reads in
-        // both Light and Dark Mode (light = faint ink, busy = solid ink).
+    private func color(for day: Day?) -> Color {
+        guard let day else { return .clear }
         let ink = Color.LumenFocus.ink
-        guard let s = stats else { return ink.opacity(0.06) }
-        if s.restCount == 0 { return ink.opacity(0.12) }
-        let ratio = Double(s.restCount) / Double(max)
-        switch ratio {
-        case 0..<0.25:   return ink.opacity(0.35)
-        case 0.25..<0.5: return ink.opacity(0.55)
-        case 0.5..<0.75: return ink.opacity(0.78)
-        default:         return ink
-        }
+        guard let record = day.record else { return ink.opacity(0.05) }
+        guard record.restCount > 0 else { return ink.opacity(0.15) }
+        let largest = max(1, stats.map(\.restCount).max() ?? 1)
+        return ink.opacity(0.3 + 0.7 * Double(record.restCount) / Double(largest))
     }
 
-    private func tooltip(for stats: DailyStatistics?) -> String {
-        guard let s = stats else { return "" }
-        return String(format: L("%@ · %d 次"), s.date, s.restCount)
+    private func tooltip(for day: Day?) -> String {
+        guard let day else { return "" }
+        guard let record = day.record else { return "\(day.key) · \(L("无记录"))" }
+        return String(format: L("%@ · %d 次"), day.key, record.restCount)
     }
 }
 
-// MARK: - ISO8601 helper
+private enum StatisticsDates {
+    static func key(_ date: Date) -> String { formatter().string(from: date) }
+    static func parse(_ key: String) -> Date? { formatter().date(from: key) }
 
-private extension ISO8601DateFormatter {
-    static func string(from date: Date, timeZone: TimeZone, formatOptions: Options) -> String {
-        let formatter = ISO8601DateFormatter()
-        formatter.timeZone = timeZone
-        formatter.formatOptions = formatOptions
-        return formatter.string(from: date)
+    private static func formatter() -> DateFormatter {
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = Calendar.current
+        formatter.timeZone = Calendar.current.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        return formatter
     }
 }

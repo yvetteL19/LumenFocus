@@ -1,261 +1,188 @@
-//
-//  TimerManager.swift
-//  LumenFocus
-//
-//  Owns the work-period heartbeat. Delegates the rest phase entirely to RestController.
-//
-
 import Foundation
 import Combine
 
-/// 计时管理器 — 工作期心跳，休息期协调
-///
-/// 不再持有任何 `DispatchQueue.asyncAfter` 兜底，所有状态推进都从 1 秒 tick 派生。
+/// Connects the pure cycle engine to settings, environment, persistence, and presentation.
+/// The timer is only a heartbeat; all elapsed time and deadlines belong to CycleEngine.
 final class TimerManager: ObservableObject {
     static let shared = TimerManager()
 
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
-
     private let appState = AppState.shared
     private let restController = RestController.shared
     private let workspaceMonitor = WorkspaceMonitor.shared
-
-    /// 当前休息从什么时刻起算（用于推进 RestController 的阶段）
-    private var restStartedAt: Date?
-
-    /// 进入自动暂停（idle）时的时刻，用于「离开太久则回滚剩余时间」逻辑
-    private var autoSuspendedAt: Date?
+    private let engine: CycleEngine
 
     var isRunning: Bool { timer?.isValid == true }
 
     private init() {
+        engine = CycleEngine(configuration: Self.configuration())
+        reloadEnvironmentSettings()
+        engine.setEnvironment(workspaceMonitor.environment.value)
         setupSubscriptions()
+        synchronize()
     }
 
-    // MARK: - Public
-
-    /// 启动工作周期
     func start() {
-        stop()
-        appState.startWorkCycle()
+        engine.start()
         scheduleHeartbeat()
+        synchronize()
     }
 
-    /// 完全停止心跳
     func stop() {
         timer?.invalidate()
         timer = nil
+        engine.stop()
+        synchronize()
+        StatisticsManager.shared.flush()
     }
 
-    /// 用户主动暂停
+    /// Pauses reminders, not work measurement. Meeting/lock restrictions stay independent.
     func pause(duration: TimeInterval? = nil) {
-        appState.pause(duration: duration)
-        stop()
-    }
-
-    /// 恢复
-    func resume() {
-        start()
-    }
-
-    /// 全局快捷键 ⌘⌥E 的入口：休息中则取消（保证的"逃生"通道，
-    /// 即使遮罩窗口未成为 key window 也能结束），否则立即触发休息。
-    func toggleRestViaShortcut() {
-        if restController.stage.value != .idle {
-            Log.timer.info("Global shortcut: cancelling active rest")
-            restController.cancelRest()
+        let now = Date()
+        let until: Date
+        if let duration {
+            until = now.addingTimeInterval(max(0, duration))
         } else {
-            triggerManualRest()
+            until = Calendar.current.date(byAdding: .day, value: 1,
+                                          to: Calendar.current.startOfDay(for: now)) ?? now.addingTimeInterval(86400)
         }
+        engine.pause(until: until)
+        synchronize()
+        StatisticsManager.shared.flush()
     }
 
-    /// 手动触发立即休息（用于开发菜单、全局快捷键、Onboarding 试用按钮）
+    func resume() {
+        if !engine.isStarted { engine.start() }
+        engine.resume()
+        scheduleHeartbeat()
+        synchronize()
+    }
+
+    func toggleRestViaShortcut() {
+        if engine.snapshot.rest != nil { cancelCurrentRest() }
+        else { triggerManualRest() }
+    }
+
     func triggerManualRest() {
-        guard appState.isWorking else {
-            Log.timer.warning("triggerManualRest called outside .working; ignored")
-            return
-        }
-        Log.timer.info("Manual rest triggered")
-        if !isRunning { scheduleHeartbeat() }
-        startRestPeriod()
+        if !engine.isStarted { engine.start() }
+        engine.beginRest()
+        scheduleHeartbeat()
+        synchronize()
+        StatisticsManager.shared.flush()
     }
 
-    /// 渐暗蒙层「再撑 N 秒」按钮入口
-    func snoozeCurrentTrigger(by seconds: TimeInterval) {
-        restController.snooze(by: seconds)
+    func snoozeReminder(by seconds: TimeInterval) {
+        engine.snooze(by: seconds)
+        synchronize()
+        StatisticsManager.shared.flush()
     }
 
-    // MARK: - Deprecated shim
+    func skipReminder() {
+        engine.skipReminder()
+        synchronize()
+        StatisticsManager.shared.flush()
+    }
+
+    func cancelCurrentRest() {
+        engine.cancelRest()
+        synchronize()
+        StatisticsManager.shared.flush()
+    }
+
+    func snoozeCurrentTrigger(by seconds: TimeInterval) { snoozeReminder(by: seconds) }
 
     @available(*, deprecated, renamed: "triggerManualRest")
-    func triggerTestRest() {
-        triggerManualRest()
-    }
+    func triggerTestRest() { triggerManualRest() }
 
-    @available(*, deprecated, message: "RestController owns rest cancellation; call RestController.shared.cancelRest()")
-    func cancelRest() {
-        restController.cancelRest()
-    }
+    @available(*, deprecated, renamed: "cancelCurrentRest")
+    func cancelRest() { cancelCurrentRest() }
 
-    // MARK: - Private
+    private static func configuration() -> CycleEngine.Configuration {
+        let settings = AppSettings.shared
+        return CycleEngine.Configuration(workDuration: TimeInterval(settings.workDurationMinutes * 60),
+                                         restDuration: TimeInterval(settings.restDurationSeconds),
+                                         automaticallyStartsRest: settings.reminderMode == .immersive,
+                                         fadeInDuration: RestController.fadeInDuration,
+                                         fadeOutDuration: RestController.fadeOutDuration)
+    }
 
     private func setupSubscriptions() {
-        // 休息结束 → 回到工作周期 / snooze 回写
-        restController.didFinish
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] reason in
-                self?.handleRestFinished(reason: reason)
+        // Handle sleep synchronously, before the main run loop is suspended.
+        workspaceMonitor.environment
+            .sink { [weak self] value in
+                guard let self else { return }
+                self.engine.setEnvironment(value)
+                self.synchronize()
+                if value.isAway { StatisticsManager.shared.flush() }
             }
             .store(in: &cancellables)
 
-        // 用户主动暂停时停心跳
-        appState.$currentPhase
+        let settings = AppSettings.shared
+        Publishers.Merge3(settings.$workDurationMinutes.map { _ in () },
+                          settings.$restDurationSeconds.map { _ in () },
+                          settings.$reminderMode.map { _ in () })
+            .dropFirst(3)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] phase in
-                if case .paused(let until) = phase {
-                    self?.handleUserPause(until: until)
-                }
+            .sink { [weak self] in
+                guard let self else { return }
+                self.engine.configure(Self.configuration())
+                self.synchronize()
             }
             .store(in: &cancellables)
 
-        // 环境感知：自动避让
-        if AppSettings.shared.enableSmartDetection {
-            subscribeToWorkspaceSignals()
-        }
-
-        // 设置里改了工作时长 → 当前若在工作期，立即按新时长重置本轮倒计时，
-        // 让菜单栏图标与 popover 即时反映（设置为即时生效，无"保存"按钮）。
-        AppSettings.shared.$workDurationMinutes
-            .dropFirst()
+        Publishers.MergeMany([
+            settings.$enableSmartDetection.map { _ in () }.eraseToAnyPublisher(),
+            settings.$detectIdle.map { _ in () }.eraseToAnyPublisher(),
+            settings.$detectVideoCall.map { _ in () }.eraseToAnyPublisher(),
+            settings.$detectFullscreen.map { _ in () }.eraseToAnyPublisher(),
+            settings.$detectScreenLock.map { _ in () }.eraseToAnyPublisher()
+        ])
+            .dropFirst(5)
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] minutes in
-                guard let self, self.appState.isWorking else { return }
-                self.appState.remainingSeconds = minutes * 60
-                self.appState.updateProgress()
-            }
-            .store(in: &cancellables)
-    }
-
-    private func subscribeToWorkspaceSignals() {
-        workspaceMonitor.pauseSignal
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] signal in
-                self?.handleWorkspaceSignal(signal)
-            }
+            .sink { [weak self] in self?.reloadEnvironmentSettings() }
             .store(in: &cancellables)
     }
 
-    private func handleWorkspaceSignal(_ signal: PauseSignal?) {
-        switch (appState.currentPhase, signal) {
-        case (.working, .some(let s)):
-            Log.timer.info("Auto-suspend triggered: \(String(describing: s.reason), privacy: .public)")
-            autoSuspendedAt = Date()
-            appState.autoSuspend(reason: s.reason)
-            stop()
-
-        case (.autoSuspended, .none):
-            Log.timer.info("Auto-suspend lifted; resuming work")
-            applyIdleRollbackIfNeeded()
-            autoSuspendedAt = nil
-            appState.resumeFromAutoSuspend()
-            scheduleHeartbeat()
-
-        case (.autoSuspended(let current), .some(let s)) where current != s.reason:
-            // 一种避让原因切换到另一种（idle → videoCall）— 更新 reason 但不重置时刻
-            appState.currentPhase = .autoSuspended(reason: s.reason)
-
-        default:
-            break
-        }
-    }
-
-    /// 自动暂停超过当前工作周期一半时长时，认为用户「真的离开了」，回滚剩余时间到满
-    private func applyIdleRollbackIfNeeded() {
-        guard let suspendedAt = autoSuspendedAt else { return }
-        let suspendedDuration = Date().timeIntervalSince(suspendedAt)
-        let halfWorkPeriod = TimeInterval(AppSettings.shared.workDurationMinutes * 60) / 2
-        if suspendedDuration >= halfWorkPeriod {
-            Log.timer.info("Auto-suspend lasted \(suspendedDuration, format: .fixed(precision: 0))s ≥ 50% of work period; resetting remainingSeconds to full")
-            appState.remainingSeconds = AppSettings.shared.workDurationMinutes * 60
-        }
+    private func reloadEnvironmentSettings() {
+        let settings = AppSettings.shared
+        workspaceMonitor.configure(enabled: settings.enableSmartDetection,
+                                   idle: settings.detectIdle,
+                                   videoCall: settings.detectVideoCall,
+                                   fullscreen: settings.detectFullscreen,
+                                   screenLock: settings.detectScreenLock)
     }
 
     private func scheduleHeartbeat() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.tick()
+        guard timer == nil else { return }
+        let value = Timer(timeInterval: 1, repeats: true) { [weak self] _ in
+            guard let self else { return }
+            self.engine.tick()
+            self.synchronize()
         }
-        if let t = timer { RunLoop.current.add(t, forMode: .common) }
+        RunLoop.main.add(value, forMode: .common)
+        timer = value
     }
 
-    private func tick() {
-        switch appState.currentPhase {
-        case .working:
-            tickWorking()
-        case .triggeringRest, .resting:
-            tickResting()
-        case .paused, .autoSuspended:
-            break
-        }
-    }
-
-    private func tickWorking() {
-        appState.recordWorkDuration()
-        if appState.remainingSeconds > 0 {
-            appState.remainingSeconds -= 1
-            appState.updateProgress()
-        } else {
-            startRestPeriod()
-        }
-    }
-
-    private func tickResting() {
-        if appState.remainingSeconds > 0 {
-            appState.remainingSeconds -= 1
-            appState.updateProgress()
-            if let start = restStartedAt {
-                restController.tickRest(elapsed: Date().timeIntervalSince(start))
+    private func synchronize() {
+        let events = engine.drainEvents()
+        let statistics = StatisticsManager.shared
+        for event in events {
+            switch event {
+            case .workRecorded(let from, let to):
+                statistics.recordWork(from: from, to: to)
+            case .restEnded(let id, let date, .completed):
+                statistics.recordCompletedRest(at: date, id: id)
+            case .restEnded, .naturalBreak:
+                break
             }
-        } else {
-            restController.completeRest()
         }
-    }
-
-    private func startRestPeriod() {
-        let duration = TimeInterval(AppSettings.shared.restDurationMinutes * 60)
-        restStartedAt = Date()
-        restController.beginRest(duration: duration)
-    }
-
-    private func handleRestFinished(reason: RestEndReason) {
-        restStartedAt = nil
-        switch reason {
-        case .completed:
-            appState.completeRest()
-        case .userCancelled:
-            appState.cancelRest()
-        case .snoozed(let seconds):
-            appState.startWorkCycle()
-            appState.remainingSeconds = Int(seconds)
-            appState.updateProgress()
-        }
-    }
-
-    private func handleUserPause(until: PauseEndTime) {
-        stop()
-        let resumeDate: Date
-        switch until {
-        case .duration(let date):
-            resumeDate = date
-        case .endOfDay:
-            let calendar = Calendar.current
-            let tomorrow = calendar.date(byAdding: .day, value: 1, to: Date())!
-            resumeDate = calendar.startOfDay(for: tomorrow)
-        }
-        let delay = resumeDate.timeIntervalSinceNow
-        guard delay > 0 else { return }
-        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
-            self?.resume()
+        appState.apply(engine.snapshot)
+        appState.refreshStatistics()
+        restController.render(engine.snapshot.rest)
+        for case .restEnded(_, _, let reason) in events {
+            restController.publishEnd(reason)
+            statistics.flush()
         }
     }
 }

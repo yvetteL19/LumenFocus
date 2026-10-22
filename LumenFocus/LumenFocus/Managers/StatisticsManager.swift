@@ -1,18 +1,10 @@
-//
-//  StatisticsManager.swift
-//  LumenFocus
-//
-//  Created by AI Director on 2026/2/4.
-//  Enhanced statistics tracking with weekly data
-//
-
 import Foundation
 
-/// 每日统计数据结构
-struct DailyStatistics: Codable {
-    var date: String  // 格式: yyyy-MM-dd
-    var restCount: Int  // 护眼次数
-    var workDuration: Int  // 用眼时长（秒）
+/// Recorded timer activity, not a measurement of screen exposure or eye health.
+struct DailyStatistics: Codable, Equatable {
+    var date: String
+    var restCount: Int
+    var workDuration: Int
 
     init(date: String, restCount: Int = 0, workDuration: Int = 0) {
         self.date = date
@@ -21,276 +13,295 @@ struct DailyStatistics: Codable {
     }
 }
 
-/// 统计管理器 - 负责统计数据的持久化和计算
-class StatisticsManager {
+/// The sole statistics repository. Call from the app's main thread.
+/// Work intervals must be nonoverlapping; completed rest session IDs are idempotent.
+final class StatisticsManager {
     static let shared = StatisticsManager()
+    static let didChangeNotification = Notification.Name("LumenFocus.statisticsDidChange")
 
-    // MARK: - Private Properties
-
-    private let userDefaults = UserDefaults.standard
-    private let statisticsKey = "dailyStatisticsData"
-
-    // MARK: - Initialization
-
-    private init() {
-        // 迁移旧数据（如果存在）
-        migrateOldDataIfNeeded()
+    private struct Store: Codable {
+        var records: [DailyStatistics]
+        var fractionalWorkSeconds: [String: Double]
+        var completedRestIDs: [String: String]
     }
 
-    // MARK: - Public Methods
-
-    /// 获取今日统计
-    func getTodayStatistics() -> DailyStatistics {
-        let today = getTodayKey()
-        return getStatistics(for: today)
+    private enum Keys {
+        static let store = "statisticsStoreV2"
+        static let migrationVersion = "statisticsMigrationVersion"
+        static let legacyStatistics = "dailyStatisticsData"
+        static let legacyMigration = "hasMigratedToStatisticsManager"
     }
 
-    /// 更新今日统计
-    func updateTodayStatistics(restCount: Int, workDuration: Int) {
-        let today = getTodayKey()
-        var stats = getStatistics(for: today)
-        stats.restCount = restCount
-        stats.workDuration = workDuration
-        saveStatistics(stats)
-    }
+    private let defaults: UserDefaults
+    private let calendar: Calendar
+    private let now: () -> Date
+    private let retentionDays: Int
+    private let formatter: DateFormatter
+    private var records: [String: DailyStatistics] = [:]
+    private var fractionalWorkSeconds: [String: Double] = [:]
+    private var completedRestIDs: [String: String] = [:]
+    private var currentDayKey: String
+    private var lastFlushAt: Date
+    private var isDirty = false
+    private var pendingLegacyKeys: [String] = []
 
-    /// 增加今日护眼次数
-    func incrementTodayRestCount() {
-        var stats = getTodayStatistics()
-        stats.restCount += 1
-        saveStatistics(stats)
-    }
+    /// Inject a separate defaults suite and clock in tests; initialization never touches the shared singleton.
+    init(defaults: UserDefaults = .standard, calendar: Calendar = .current,
+         now: @escaping () -> Date = Date.init, retentionDays: Int = 90) {
+        self.defaults = defaults
+        self.calendar = calendar
+        self.now = now
+        self.retentionDays = max(1, retentionDays)
+        let formatter = DateFormatter()
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.calendar = calendar
+        formatter.timeZone = calendar.timeZone
+        formatter.dateFormat = "yyyy-MM-dd"
+        formatter.isLenient = false
+        self.formatter = formatter
+        let initialDate = now()
+        self.currentDayKey = formatter.string(from: initialDate)
+        self.lastFlushAt = initialDate
 
-    /// 增加今日用眼时长（秒）
-    func incrementTodayWorkDuration(seconds: Int = 1) {
-        var stats = getTodayStatistics()
-        stats.workDuration += seconds
-        saveStatistics(stats)
-    }
-
-    /// 获取本周统计数据（最近7天）
-    func getWeeklyStatistics() -> [DailyStatistics] {
-        let calendar = Calendar.current
-        let today = Date()
-        var weeklyStats: [DailyStatistics] = []
-
-        // 获取最近7天的数据
-        for dayOffset in 0..<7 {
-            if let date = calendar.date(byAdding: .day, value: -dayOffset, to: today) {
-                let dateKey = formatDate(date)
-                let stats = getStatistics(for: dateKey)
-                weeklyStats.append(stats)
+        let savedData = defaults.data(forKey: Keys.store)
+        if let data = savedData,
+           let store = try? JSONDecoder().decode(Store.self, from: data) {
+            for record in store.records { merge(record) }
+            fractionalWorkSeconds = store.fractionalWorkSeconds.filter {
+                records[$0.key] != nil && $0.value.isFinite && (0..<1).contains($0.value)
             }
+            completedRestIDs = store.completedRestIDs.filter {
+                UUID(uuidString: $0.key) != nil && parseDate($0.value) != nil
+            }
+        } else {
+            // Preserve the original bytes before recovering from legacy records.
+            // Unique keys also preserve earlier recovery attempts for manual inspection.
+            if let savedData {
+                defaults.set(savedData, forKey: "statisticsStoreV2.recovery.\(UUID().uuidString)")
+            }
+            migrateLegacyData()
         }
-
-        return weeklyStats.reversed()  // 按时间顺序排列
+        pruneHistory(at: initialDate)
+        flush()
     }
 
-    /// 获取本周护眼总次数
-    func getWeeklyRestCount() -> Int {
-        return getWeeklyStatistics().reduce(0) { $0 + $1.restCount }
+    /// Split elapsed work at local midnight, retaining subsecond remainders per day.
+    func recordWork(from start: Date, to end: Date) {
+        guard start.timeIntervalSinceReferenceDate.isFinite,
+              end.timeIntervalSinceReferenceDate.isFinite, end > start else { return }
+        let referenceDate = now()
+        refreshDay(at: referenceDate)
+        guard let cutoff = retentionCutoff(at: referenceDate),
+              let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: referenceDate)) else { return }
+        var cursor = max(start, cutoff)
+        let boundedEnd = min(end, tomorrow)
+        while cursor < boundedEnd {
+            let dayStart = calendar.startOfDay(for: cursor)
+            guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart), nextDay > cursor else { break }
+            let segmentEnd = min(boundedEnd, nextDay)
+            let key = formatter.string(from: cursor)
+            let accumulated = (fractionalWorkSeconds[key] ?? 0) + segmentEnd.timeIntervalSince(cursor)
+            let wholeSeconds = Int(accumulated.rounded(.down))
+            fractionalWorkSeconds[key] = accumulated - Double(wholeSeconds)
+            var record = records[key] ?? DailyStatistics(date: key)
+            record.workDuration += wholeSeconds
+            records[key] = record
+            isDirty = true
+            cursor = segmentEnd
+        }
+        if referenceDate.timeIntervalSince(lastFlushAt) >= 60 || referenceDate < lastFlushAt {
+            flush()
+        }
     }
 
-    /// 获取本周用眼总时长（秒）
-    func getWeeklyWorkDuration() -> Int {
-        return getWeeklyStatistics().reduce(0) { $0 + $1.workDuration }
+    /// A completion is counted once per UUID, including after relaunch, within retained history.
+    func recordCompletedRest(at date: Date, id: UUID) {
+        let referenceDate = now()
+        refreshDay(at: referenceDate)
+        guard isRetained(date, relativeTo: referenceDate), completedRestIDs[id.uuidString] == nil else { return }
+        let key = formatter.string(from: date)
+        var record = records[key] ?? DailyStatistics(date: key)
+        record.restCount += 1
+        records[key] = record
+        completedRestIDs[id.uuidString] = key
+        isDirty = true
+        // A completed session is a meaningful event worth persisting immediately.
+        flush()
     }
 
-    /// 获取本周用眼总时长（格式化字符串，本地化）
-    func getWeeklyWorkDurationFormatted() -> String {
-        return formatWorkDuration(getWeeklyWorkDuration())
+    /// Persist a single snapshot only when changed. Call at pause, sleep and app termination.
+    func flush() {
+        let referenceDate = now()
+        pruneHistory(at: referenceDate)
+        guard isDirty else { return }
+        let store = Store(records: sortedRecords(), fractionalWorkSeconds: fractionalWorkSeconds,
+                          completedRestIDs: completedRestIDs)
+        guard let data = try? JSONEncoder().encode(store) else { return }
+        defaults.set(data, forKey: Keys.store)
+        defaults.set(2, forKey: Keys.migrationVersion)
+        // Remove old stores only after the new complete snapshot has been written.
+        for key in pendingLegacyKeys { defaults.removeObject(forKey: key) }
+        pendingLegacyKeys.removeAll()
+        lastFlushAt = referenceDate
+        isDirty = false
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }
 
-    /// 获取每日平均护眼次数
+    /// Refresh the date boundary and enforce retention without manufacturing a persisted zero day.
+    @discardableResult
+    func refreshToday() -> DailyStatistics {
+        refreshDay(at: now())
+        return records[currentDayKey] ?? DailyStatistics(date: currentDayKey)
+    }
+
+    func getTodayStatistics() -> DailyStatistics { refreshToday() }
+
+    /// Only dates with recorded activity are returned. Missing dates are not measured zeroes.
+    func getWeeklyStatistics() -> [DailyStatistics] { getRecentStatistics(days: 7) }
+    func getWeeklyRestCount() -> Int { getWeeklyStatistics().reduce(0) { $0 + $1.restCount } }
+    func getWeeklyWorkDuration() -> Int { getWeeklyStatistics().reduce(0) { $0 + $1.workDuration } }
+    func getWeeklyWorkDurationFormatted() -> String { formatWorkDuration(getWeeklyWorkDuration()) }
+
+    /// Average across recorded days, including working days with zero completed breaks.
     func getDailyAverageRestCount() -> Int {
-        let weeklyStats = getWeeklyStatistics()
-        let daysWithData = weeklyStats.filter { $0.restCount > 0 }.count
-        guard daysWithData > 0 else { return 0 }
-
-        let totalCount = weeklyStats.reduce(0) { $0 + $1.restCount }
-        return totalCount / daysWithData
+        let weekly = getWeeklyStatistics()
+        guard !weekly.isEmpty else { return 0 }
+        return weekly.reduce(0) { $0 + $1.restCount } / weekly.count
     }
 
-    // MARK: - Streak
+    func getRecentStatistics(days: Int) -> [DailyStatistics] {
+        guard days > 0 else { return [] }
+        let referenceDate = now()
+        refreshDay(at: referenceDate)
+        let span = min(days, retentionDays)
+        guard let cutoff = calendar.date(byAdding: .day, value: -(span - 1),
+                                         to: calendar.startOfDay(for: referenceDate)) else { return [] }
+        let cutoffKey = formatter.string(from: cutoff)
+        return sortedRecords().filter { $0.date >= cutoffKey && $0.date <= currentDayKey }
+    }
 
-    /// 每日「达标」所需的最少护眼次数（streak 用）
-    var dailyStreakThreshold: Int { 4 }
+    func getAllStatistics() -> [DailyStatistics] {
+        refreshDay(at: now())
+        return sortedRecords()
+    }
 
-    /// 当前连续达标天数（含今日）。今日尚未达标但昨天达标 → 仍计入昨天延续的 streak
+    /// Compatibility queries: a day with any completed break, not a medical target.
+    var dailyStreakThreshold: Int { 1 }
+
     func getCurrentStreak() -> Int {
-        let calendar = Calendar.current
-        var date = Date()
-        var streak = 0
-        let todayKey = formatDate(date)
-        let todayStats = getStatistics(for: todayKey)
-
-        // 如果今天还没达标，先看昨天起算
-        if todayStats.restCount < dailyStreakThreshold {
+        let referenceDate = now()
+        refreshDay(at: referenceDate)
+        var date = calendar.startOfDay(for: referenceDate)
+        if (records[formatter.string(from: date)]?.restCount ?? 0) == 0 {
             guard let yesterday = calendar.date(byAdding: .day, value: -1, to: date) else { return 0 }
             date = yesterday
         }
-
-        // 向前扫描，直到遇到未达标的一天
-        while true {
-            let key = formatDate(date)
-            let stats = getStatistics(for: key)
-            if stats.restCount >= dailyStreakThreshold {
-                streak += 1
-                guard let prev = calendar.date(byAdding: .day, value: -1, to: date) else { break }
-                date = prev
-            } else {
-                break
-            }
-            // 防御性上限：扫到 365 天之外停止
-            if streak >= 365 { break }
+        var count = 0
+        while count < retentionDays, (records[formatter.string(from: date)]?.restCount ?? 0) > 0 {
+            count += 1
+            guard let previous = calendar.date(byAdding: .day, value: -1, to: date) else { break }
+            date = previous
         }
-        return streak
+        return count
     }
 
-    /// 获取最近 N 天的统计（按日期升序）
-    func getRecentStatistics(days: Int) -> [DailyStatistics] {
-        let calendar = Calendar.current
-        let today = Date()
-        var result: [DailyStatistics] = []
-        for offset in (0..<days).reversed() {
-            if let date = calendar.date(byAdding: .day, value: -offset, to: today) {
-                let key = formatDate(date)
-                result.append(getStatistics(for: key))
-            }
-        }
-        return result
-    }
-
-    /// 已记录的全部统计（按日期升序）
-    func getAllStatistics() -> [DailyStatistics] {
-        loadAllStatistics().sorted { $0.date < $1.date }
-    }
-
-    /// 历史上最长的连续达标天数（扫描所有已记录数据）
     func getLongestStreak() -> Int {
-        let all = loadAllStatistics()
-        guard !all.isEmpty else { return 0 }
-
-        let calendar = Calendar.current
-        // 按日期排序
-        let sortedDates = all.compactMap { stats -> Date? in
-            guard stats.restCount >= dailyStreakThreshold else { return nil }
-            return parseDate(stats.date)
-        }.sorted()
-
-        guard !sortedDates.isEmpty else { return 0 }
-
-        var longest = 1
-        var current = 1
-
-        for i in 1..<sortedDates.count {
-            let prev = sortedDates[i - 1]
-            let curr = sortedDates[i]
-            if let days = calendar.dateComponents([.day], from: prev, to: curr).day, days == 1 {
+        let dates = getAllStatistics().filter { $0.restCount > 0 }.compactMap { parseDate($0.date) }
+        var longest = 0
+        var current = 0
+        var previous: Date?
+        for date in dates {
+            if let previous, calendar.dateComponents([.day], from: previous, to: date).day == 1 {
                 current += 1
-                longest = max(longest, current)
             } else {
                 current = 1
             }
+            longest = max(longest, current)
+            previous = date
         }
         return longest
     }
 
-    /// 清理过期数据（保留最近30天）
     func cleanupOldData() {
-        let calendar = Calendar.current
-        let today = Date()
-        let thirtyDaysAgo = calendar.date(byAdding: .day, value: -30, to: today)!
+        pruneHistory(at: now())
+        flush()
+    }
 
-        var allStats = loadAllStatistics()
+    private func refreshDay(at date: Date) {
+        let key = formatter.string(from: date)
+        guard key != currentDayKey else { return }
+        currentDayKey = key
+        pruneHistory(at: date)
+        flush()
+        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+    }
 
-        // 过滤掉30天前的数据
-        allStats = allStats.filter { stats in
-            if let date = parseDate(stats.date) {
-                return date >= thirtyDaysAgo
+    private func retentionCutoff(at date: Date) -> Date? {
+        calendar.date(byAdding: .day, value: -(retentionDays - 1), to: calendar.startOfDay(for: date))
+    }
+
+    private func isRetained(_ date: Date, relativeTo referenceDate: Date) -> Bool {
+        guard date.timeIntervalSinceReferenceDate.isFinite,
+              let cutoff = retentionCutoff(at: referenceDate) else { return false }
+        let day = calendar.startOfDay(for: date)
+        return day >= cutoff && day <= calendar.startOfDay(for: referenceDate)
+    }
+
+    private func pruneHistory(at date: Date) {
+        guard let cutoff = retentionCutoff(at: date) else { return }
+        let kept = records.filter { entry in
+            guard let recordedDate = parseDate(entry.key) else { return false }
+            // A clock adjustment must not erase previously recorded future-dated days.
+            return recordedDate >= cutoff
+        }
+        let keptIDs = completedRestIDs.filter { entry in
+            guard let recordedDate = parseDate(entry.value) else { return false }
+            return recordedDate >= cutoff
+        }
+        if kept.count != records.count || keptIDs.count != completedRestIDs.count { isDirty = true }
+        records = kept
+        completedRestIDs = keptIDs
+        fractionalWorkSeconds = fractionalWorkSeconds.filter { records[$0.key] != nil }
+    }
+
+    private func sortedRecords() -> [DailyStatistics] { records.values.sorted { $0.date < $1.date } }
+
+    private func parseDate(_ key: String) -> Date? {
+        guard key.count == 10, let date = formatter.date(from: key), formatter.string(from: date) == key else { return nil }
+        return date
+    }
+
+    /// Legacy stores overlap. A per-field maximum preserves data without double-counting it.
+    private func merge(_ record: DailyStatistics) {
+        guard parseDate(record.date) != nil else { return }
+        let previous = records[record.date] ?? DailyStatistics(date: record.date)
+        records[record.date] = DailyStatistics(date: record.date,
+            restCount: max(previous.restCount, max(0, record.restCount)),
+            workDuration: max(previous.workDuration, max(0, record.workDuration)))
+    }
+
+    private func migrateLegacyData() {
+        if let data = defaults.data(forKey: Keys.legacyStatistics) {
+            if let oldRecords = try? JSONDecoder().decode([DailyStatistics].self, from: data) {
+                for record in oldRecords where record.restCount > 0 || record.workDuration > 0 { merge(record) }
+            } else {
+                defaults.set(data, forKey: "statisticsLegacy.recovery.\(UUID().uuidString)")
             }
-            return false
         }
-
-        saveAllStatistics(allStats)
-    }
-
-    // MARK: - Private Methods
-
-    /// 获取指定日期的统计数据
-    private func getStatistics(for dateKey: String) -> DailyStatistics {
-        let allStats = loadAllStatistics()
-        return allStats.first(where: { $0.date == dateKey }) ?? DailyStatistics(date: dateKey)
-    }
-
-    /// 保存统计数据
-    private func saveStatistics(_ stats: DailyStatistics) {
-        var allStats = loadAllStatistics()
-
-        // 更新或添加
-        if let index = allStats.firstIndex(where: { $0.date == stats.date }) {
-            allStats[index] = stats
-        } else {
-            allStats.append(stats)
+        pendingLegacyKeys = [Keys.legacyStatistics, Keys.legacyMigration]
+        for (key, _) in defaults.dictionaryRepresentation() {
+            let prefix: String
+            if key.hasPrefix("restCount_") { prefix = "restCount_" }
+            else if key.hasPrefix("workDuration_") { prefix = "workDuration_" }
+            else { continue }
+            pendingLegacyKeys.append(key)
+            let day = String(key.dropFirst(prefix.count))
+            guard parseDate(day) != nil else { continue }
+            let value = max(0, defaults.integer(forKey: key))
+            guard value > 0 else { continue }
+            merge(DailyStatistics(date: day, restCount: prefix == "restCount_" ? value : 0,
+                                  workDuration: prefix == "workDuration_" ? value : 0))
         }
-
-        saveAllStatistics(allStats)
-    }
-
-    /// 加载所有统计数据
-    private func loadAllStatistics() -> [DailyStatistics] {
-        guard let data = userDefaults.data(forKey: statisticsKey),
-              let stats = try? JSONDecoder().decode([DailyStatistics].self, from: data) else {
-            return []
-        }
-        return stats
-    }
-
-    /// 保存所有统计数据
-    private func saveAllStatistics(_ stats: [DailyStatistics]) {
-        if let data = try? JSONEncoder().encode(stats) {
-            userDefaults.set(data, forKey: statisticsKey)
-        }
-    }
-
-    /// 获取今日Key（格式：yyyy-MM-dd）
-    private func getTodayKey() -> String {
-        return formatDate(Date())
-    }
-
-    /// 格式化日期为Key
-    private func formatDate(_ date: Date) -> String {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.string(from: date)
-    }
-
-    /// 解析日期Key
-    private func parseDate(_ dateKey: String) -> Date? {
-        let formatter = DateFormatter()
-        formatter.dateFormat = "yyyy-MM-dd"
-        return formatter.date(from: dateKey)
-    }
-
-    /// 迁移旧数据（兼容AppState的旧存储方式）
-    private func migrateOldDataIfNeeded() {
-        let todayKey = getTodayKey()
-
-        // 检查是否已经迁移过
-        if userDefaults.bool(forKey: "hasMigratedToStatisticsManager") {
-            return
-        }
-
-        // 从AppState的旧Key中读取今日数据
-        let oldRestCount = userDefaults.integer(forKey: "restCount_\(todayKey)")
-        let oldWorkDuration = userDefaults.integer(forKey: "workDuration_\(todayKey)")
-
-        if oldRestCount > 0 || oldWorkDuration > 0 {
-            // 迁移数据
-            updateTodayStatistics(restCount: oldRestCount, workDuration: oldWorkDuration)
-        }
-
-        // 标记为已迁移
-        userDefaults.set(true, forKey: "hasMigratedToStatisticsManager")
+        isDirty = true
     }
 }

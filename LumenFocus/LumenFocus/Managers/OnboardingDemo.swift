@@ -100,6 +100,7 @@ private final class DemoOverlayWindow: NSWindow {
         isOpaque = false
         hasShadow = false
         ignoresMouseEvents = false
+        isReleasedWhenClosed = false
 
         guard let content = contentView else { return }
         dimView.frame = content.bounds
@@ -124,6 +125,10 @@ private final class DemoOverlayWindow: NSWindow {
     }
 
     func fade(to alpha: CGFloat, duration: TimeInterval) {
+        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+            dimView.alphaValue = alpha
+            return
+        }
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = duration
             ctx.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)

@@ -18,7 +18,6 @@
 "演示中 · 按 ESC 或点击结束" = "Demo · press ESC or click to end";
 "选择你的节奏" = "Pick your rhythm";
 "20-20-20" = "20-20-20";
-"20 分钟 / 20 秒（医学共识）" = "20 min / 20 sec (medical consensus)";
 "默认" = "Default";
 "40 分钟 / 5 分钟" = "40 min / 5 min";
 "深度工作" = "Deep work";
@@ -94,9 +93,6 @@
 
 // MARK: - Tooltips
 
-"LumenFocus - 眼睛电量满格，还有%d分钟" = "LumenFocus — eyes fully charged, %d min left";
-"LumenFocus - 眼睛电量一半，还有%d分钟" = "LumenFocus — eye charge half, %d min left";
-"LumenFocus - 眼睛电量低，还有%d分钟即将休息" = "LumenFocus — eye charge low, rest in %d min";
 "已暂停，剩余 %d 分钟" = "Paused — %d min left";
 "已暂停至今日结束" = "Paused until end of day";
 "LumenFocus - 已自动暂停（检测到无操作）" = "LumenFocus — auto-paused (no activity)";
@@ -115,8 +111,6 @@
 "吸气" = "Inhale";
 "屏息" = "Hold";
 "呼气" = "Exhale";
-"看向移动的亮点" = "Follow the moving dot";
-"让眼球转动是放松眼肌的关键" = "Moving your eyes relaxes the eye muscles";
 
 // MARK: - Settings
 
@@ -132,7 +126,6 @@
 "轻雨" = "Rain";
 "白噪音" = "White noise";
 "森林" = "Forest";
-"休息开始时自动播放并循环。默认关闭；可在休息时点菜单栏暂时静音。" = "Plays in a loop during rest. Off by default; you can mute from the menu bar mid-rest.";
 
 "智能避让" = "Smart auto-pause";
 "启用智能避让" = "Enable smart auto-pause";
@@ -174,7 +167,6 @@
 "近 7 日" = "Last 7 days";
 "近 90 日热力图" = "Last 90 days";
 "浅 → 深 = 0 → 最多" = "Lighter → darker = fewer → more";
-"数据完全本地存储 · 卸载即删除" = "All data stays on this Mac — uninstalling wipes it";
 "导出 CSV" = "Export CSV";
 "还没有护眼记录" = "No eye-care records yet";
 "完成第一次休息后，这里会出现你的趋势图和热力图。" = "After your first rest, your trends and heatmap will appear here.";
@@ -184,3 +176,108 @@
 "本周护眼总结" = "This week's eye care";
 "护眼 %d 次 · 用眼 %@" = "%d rests · %@ of screen time";
 " · 连续 %d 天达标" = " · %d-day streak";
+
+// Reliable reminder flow
+
+"%d 秒" = "%d sec";
+"2 分钟后再提醒" = "Remind me in 2 minutes";
+"5 分钟后再提醒" = "Remind me in 5 minutes";
+"LumenFocus · 下次休息 %@" = "LumenFocus · Next break at %@";
+"LumenFocus · 休息提醒待处理" = "LumenFocus · A break is ready when you are";
+"LumenFocus · 剩余休息 %@" = "LumenFocus · %@ left in this break";
+"LumenFocus 休息提醒" = "LumenFocus break reminder";
+"下次休息" = "Next break";
+"今日完成 %d 次休息 · 已计时 %@" = "%d completed breaks today · %@ timed work";
+"休息提醒" = "Break reminder";
+"会议应用在前台时暂缓提醒" = "Defer reminders in meeting apps";
+"你可以稍后在设置中更改。无需通知权限，也能收到休息提醒。" = "You can change this later. Break reminders work without notification permission.";
+"使用当前设置开始" = "Start with current settings";
+"先体验一下（可选）" = "Try it first (optional)";
+"全局快捷键暂不可用。仍可使用菜单栏、休息按钮和 Esc。" = "The global shortcut is unavailable. You can still use the menu bar, break controls, and Esc.";
+"准备好再开始，当前工作不会被遮挡。" = "Start when you are ready. Your current work stays visible.";
+"准备离屏休息" = "Preparing your break";
+"动画跟随系统的减少动态效果设置。" = "Animations respect the system Reduce Motion setting.";
+"好" = "OK";
+"完成设置后，你可以从屏幕顶部的菜单栏找到 LumenFocus。" = "After setup, find LumenFocus in the menu bar at the top of your screen.";
+"届时恢复提醒，工作时长继续累计。若已到点，会留出缓冲。" = "Reminders resume then. Work time continues to count; an overdue reminder gets a grace period.";
+"应用规则依据前台应用判断，不代表已检测到通话或屏幕共享。暂缓提醒时仍累计工作；离开规则应用后留出缓冲再提醒。" = "App rules use the foreground app, not confirmed calls or screen sharing. Work time still counts while reminders are deferred. A grace period follows when you leave the app.";
+"延后 %d 分钟 · %@" = "Delay %d min · %@";
+"延后本次" = "Delay this break";
+"稍后再提醒" = "Remind me later";
+"开始休息" = "Start break";
+"开始提醒" = "Start reminders";
+"开始或结束休息" = "Start or end a break";
+"快捷键不可用，请使用菜单栏或休息界面的结束按钮。" = "Shortcut unavailable. Use the menu bar or the End break button.";
+"快捷键可能被其他应用占用，请使用菜单栏或休息界面的结束按钮。" = "Another app may be using this shortcut. Use the menu bar or the End break button.";
+"恢复提醒" = "Resume reminders";
+"找一个远处的物体，轻松眨眼。" = "Look at something farther away and blink comfortably.";
+"提醒已暂停" = "Reminders paused";
+"提醒方式" = "Reminder style";
+"提醒暂缓" = "Reminders deferred";
+"无操作不等于休息，只改用轻提醒；锁屏或睡眠才暂停工作计时。" = "No input does not mean you are resting; it only switches to a gentle reminder. Locking the screen or sleeping pauses work timing.";
+"无操作时使用轻提醒" = "Use gentle reminders when there is no input";
+"日" = "Day";
+"明天恢复提醒，也可随时手动恢复。" = "Reminders resume tomorrow. You can also resume them anytime.";
+"暂不打扰" = "Holding reminders";
+"暂停提醒" = "Pause reminders";
+"暂停至 %@" = "Pause until %@";
+"本次继续提醒" = "Allow reminders this time";
+"沉浸渐暗" = "Immersive dimming";
+"演示中可按 Esc 或点击结束。不计入休息记录；也可直接继续。" = "Press Esc or click to end the demo. It is not recorded as a break. You can also continue without trying it.";
+"演示或媒体应用在前台时暂缓提醒" = "Defer reminders in presentation or media apps";
+"环境变化后自动恢复，也可手动继续。" = "Reminders resume when the context changes. You can also continue manually.";
+"看向屏幕之外" = "Look away from the screen";
+"看向屏幕之外。你可以随时结束或延后。" = "Look away from the screen. You can end or delay the break anytime.";
+"第 %d 步，共 4 步" = "Step %d of 4";
+"系统未能应用开机启动设置。请在系统设置的登录项中检查；当前状态未被更改。" = "The system could not apply the login setting. Check Login Items in System Settings. The actual system status is retained.";
+"结束休息" = "End break";
+"给工作留一点离屏时间" = "Make room for time away from your screen";
+"给眼睛一个小空隙" = "Time for a short screen break";
+"继续并稍后设置" = "Continue and set up later";
+"让提醒适合你的工作" = "Fit reminders to your work";
+"该休息一下了" = "A break is ready";
+"调整节奏后，菜单栏会显示新的提醒时间。渐暗渐亮不占用休息时长。" = "The menu bar shows the updated reminder time. Dimming transitions do not count toward your break.";
+"跳过本次" = "Skip this break";
+"轻提醒" = "Gentle reminder";
+"轻提醒不会遮挡工作。主动开始休息后，屏幕会渐暗，提醒你看向屏幕之外。" = "Gentle reminders keep your work visible. When you choose to start a break, the screen dims to invite you to look away.";
+"还有 %d 分钟" = "%d min remaining";
+"这个 10 秒演示只显示在当前屏幕；正式休息覆盖所有屏幕，每块屏幕都有结束按钮。" = "This 10-second demo uses the current display. A full break covers all displays, with an End break button on each.";
+"重新体验引导" = "Replay setup";
+"锁屏或睡眠时暂停计时" = "Pause work timing while locked or asleep";
+"随时可结束 · Esc" = "End anytime · Esc";
+"短暂离屏" = "Short screen break";
+"规律休息" = "Regular break";
+"较长间隔" = "Longer interval";
+"每 20 分钟，休息 20 秒" = "Every 20 min, take 20 sec away";
+"每 40 分钟，休息 5 分钟" = "Every 40 min, take a 5 min break";
+"每 50 分钟，休息 10 分钟" = "Every 50 min, take a 10 min break";
+"到点轻轻提醒，由你决定何时开始休息" = "A gentle reminder; you decide when to start your break";
+"随时延后、暂停或结束，不会困住你" = "Delay, pause, or end anytime; you stay in control";
+"工作与休息记录保存在这台 Mac 上" = "Work and break records stay on this Mac";
+"体验 10 秒演示" = "Try the 10-second demo";
+"到点显示轻提醒。你点击开始后，才会进入离屏休息。" = "Show a gentle reminder when due. The screen dims only after you choose to start.";
+"到点自动渐暗所有屏幕。休息全程可结束或延后。" = "Automatically dim all displays when due. You can end or delay the break at any point.";
+"无法应用系统设置" = "Could not apply the system setting";
+"仅记录计时工作与完成的休息，不代表实际用眼时长或健康改善。" = "Records timed work and completed breaks, not actual eye use or health outcomes.";
+"把目光移到屏幕之外。" = "Look away from the screen.";
+"如果方便，起身走动一下。" = "If it is convenient, get up and walk around.";
+"放下手边的事，给自己片刻空隙。" = "Set your work aside for a moment.";
+"看看窗外，或房间较远的地方。" = "Look out of a window or farther across the room.";
+"完成休息" = "Completed breaks";
+"计时工作" = "Timed work";
+"记录天数" = "Recorded days";
+"近 7 天" = "Last 7 days";
+"近 90 天记录" = "Last 90 days";
+"仅统计计时工作与完成的休息，不代表健康改善。" = "Tracks timed work and completed breaks, not health outcomes.";
+"本地保存最近 90 天统计 · 导出文件由你管理" = "Last 90 days stored locally · Exported files are yours to manage";
+"还没有活动记录" = "No activity recorded yet";
+"开始计时或完成一次休息后，这里会显示你的记录。" = "Your records will appear after you start a timer or complete a break.";
+"无记录" = "No record";
+"浅 → 深 = 完成休息由少到多" = "Lighter → darker = fewer → more completed breaks";
+"近 7 天回顾" = "Your last 7 days";
+"打开 LumenFocus，查看最近 7 天的工作与休息记录。" = "Open LumenFocus to review your work and break records from the last 7 days.";
+"导出失败" = "Export failed";
+"%@ 当前在前台，提醒暂缓；工作时长继续累计。" = "%@ is in front. Reminders are deferred; work time continues to count.";
+"规则应用" = "A rule-matched app";
+"屏幕已锁定或睡眠，提醒和工作计时已暂停。" = "The screen is locked or asleep. Reminders and work timing are paused.";
+"长时间无操作时使用轻提醒，工作时长继续累计。" = "With no recent input, reminders stay gentle. Work time continues to count.";

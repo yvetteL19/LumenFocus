@@ -8,9 +8,12 @@
 
 import AppKit
 import Carbon.HIToolbox
+import Combine
 
-final class GlobalShortcutManager {
+final class GlobalShortcutManager: ObservableObject {
     static let shared = GlobalShortcutManager()
+    @Published private(set) var isRegistered = false
+    @Published private(set) var registrationError: String?
 
     private var hotKeyRef: EventHotKeyRef?
     private var handlerRef: EventHandlerRef?
@@ -30,6 +33,7 @@ final class GlobalShortcutManager {
     /// 注册立即休息快捷键
     func registerImmediateRest() {
         unregister()
+        registrationError = nil
 
         let keyCode = UInt32(kVK_ANSI_E)
         let modifiers = UInt32(cmdKey | optionKey)
@@ -55,6 +59,7 @@ final class GlobalShortcutManager {
         )
         guard installStatus == noErr else {
             Log.system.error("InstallEventHandler failed: \(installStatus)")
+            registrationError = L("快捷键不可用，请使用菜单栏或休息界面的结束按钮。")
             return
         }
 
@@ -69,12 +74,16 @@ final class GlobalShortcutManager {
         )
         guard status == noErr else {
             Log.system.error("RegisterEventHotKey failed: \(status)")
+            unregister()
+            registrationError = L("快捷键可能被其他应用占用，请使用菜单栏或休息界面的结束按钮。")
             return
         }
+        isRegistered = true
         Log.system.info("Global shortcut ⌘⌥E registered")
     }
 
     func unregister() {
+        isRegistered = false
         if let ref = hotKeyRef {
             UnregisterEventHotKey(ref)
             hotKeyRef = nil

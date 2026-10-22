@@ -1,220 +1,136 @@
-//
-//  SettingsView.swift
-//  LumenFocus
-//
-//  Created by AI Director on 2026/2/4.
-//  Updated: 2026/6/19 - Native instant-apply grouped Form (no Save button),
-//  full Light/Dark Mode support.
-//
-
 import SwiftUI
 import AppKit
 
-/// 设置界面 — 原生即时生效（无"保存"按钮），采用分组 Form。
 struct SettingsView: View {
     @ObservedObject private var settings = AppSettings.shared
+    @ObservedObject private var shortcuts = GlobalShortcutManager.shared
     @State private var showResetConfirmation = false
-
-    // MARK: - Int <-> Double bindings for sliders
+    @State private var showSystemError = false
+    @State private var systemError = ""
 
     private var workBinding: Binding<Double> {
-        Binding(get: { Double(settings.workDurationMinutes) },
-                set: { settings.workDurationMinutes = Int($0) })
+        Binding(get: { Double(settings.workDurationMinutes) }, set: { settings.workDurationMinutes = Int($0) })
     }
-
-    private var restBinding: Binding<Double> {
-        Binding(get: { Double(settings.restDurationMinutes) },
-                set: { settings.restDurationMinutes = Int($0) })
+    private var launchBinding: Binding<Bool> {
+        Binding(get: { settings.launchAtLogin }, set: applyLaunchAtLogin)
     }
-
-    // MARK: - Body
 
     var body: some View {
         Form {
-            timeConfigSection
-            restExperienceSection
+            Section {
+                VStack(alignment: .leading, spacing: 8) {
+                    LabeledContent("工作时长", value: String(format: L("%d 分钟"), settings.workDurationMinutes))
+                    Slider(value: workBinding, in: 15...120, step: 5)
+                        .tint(Color.LumenFocus.ink)
+                        .accessibilityLabel(Text("工作时长"))
+                        .accessibilityValue(Text(verbatim: String(format: L("%d 分钟"), settings.workDurationMinutes)))
+                }
+                Picker("休息时长", selection: $settings.restDurationSeconds) {
+                    ForEach(restDurationChoices(including: settings.restDurationSeconds), id: \.self) { seconds in
+                        Text(verbatim: restDurationText(seconds)).tag(seconds)
+                    }
+                }
+            } header: { Text("时间配置") } footer: {
+                Text("调整节奏后，菜单栏会显示新的提醒时间。渐暗渐亮不占用休息时长。")
+            }
+            Section {
+                Picker("提醒方式", selection: $settings.reminderMode) {
+                    ForEach(ReminderMode.allCases) { mode in Text(verbatim: mode.displayName).tag(mode) }
+                }
+                if shortcuts.isRegistered {
+                    LabeledContent("开始或结束休息", value: "⌘⌥E")
+                } else {
+                    Text("全局快捷键暂不可用。仍可使用菜单栏、休息按钮和 Esc。")
+                        .foregroundColor(.secondary)
+                }
+                Button("现在休息") { TimerManager.shared.triggerManualRest() }
+            } header: { Text("休息体验") } footer: {
+                Text(verbatim: L(settings.reminderMode == .gentle ? "到点显示轻提醒。你点击开始后，才会进入离屏休息。" : "到点自动渐暗所有屏幕。休息全程可结束或延后。"))
+                Text("动画跟随系统的减少动态效果设置。")
+            }
             smartDetectionSection
-            launchOptionsSection
-            languageSection
-            statisticsSection
-            aboutSection
-            resetSection
+            Section("外观与启动") {
+                Toggle("开机时自动启动", isOn: launchBinding)
+                Toggle("菜单栏显示剩余分钟数字", isOn: $settings.showRemainingMinutesInMenuBar)
+            }
+            Section {
+                Picker("语言", selection: $settings.appLanguage) {
+                    ForEach(AppLanguage.allCases) { language in Text(verbatim: language.displayName).tag(language) }
+                }
+                Button("重启以应用语言") { relaunchApp() }
+            } header: { Text("语言") } footer: { Text("切换语言需在重启 App 后生效。") }
+            Section("统计数据") {
+                Button("查看详细统计") { StatisticsWindowManager.shared.show() }
+                Text("仅记录计时工作与完成的休息，不代表实际用眼时长或健康改善。")
+                    .foregroundColor(.secondary)
+            }
+            Section("关于与隐私") {
+                if let url = URL(string: AppSettings.privacyPolicyURLString) { Link("隐私政策", destination: url) }
+                if let mail = URL(string: "mailto:\(AppSettings.supportEmail)") { Link("联系支持", destination: mail) }
+                Button("重新体验引导") { OnboardingWindowManager.shared.showOnboarding(completion: {}) }
+                LabeledContent("版本", value: appVersionString)
+            }
+            Section {
+                Button("恢复默认", role: .destructive) { showResetConfirmation = true }
+                    .confirmationDialog("确定要恢复默认设置吗？", isPresented: $showResetConfirmation) {
+                        Button("恢复", role: .destructive) { settings.resetToDefaults(); applyLaunchAtLogin(settings.launchAtLogin) }
+                        Button("取消", role: .cancel) {}
+                    }
+            }
         }
         .formStyle(.grouped)
         .frame(width: 500, height: 600)
-        .onChange(of: settings.launchAtLogin) { newValue in
-            DispatchQueue.global(qos: .background).async {
-                _ = newValue ? LaunchAtLoginManager.shared.enable()
-                             : LaunchAtLoginManager.shared.disable()
-            }
-        }
-    }
-
-    // MARK: - Sections
-
-    private var timeConfigSection: some View {
-        Section("时间配置") {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("工作时长")
-                    Spacer()
-                    Text("\(settings.workDurationMinutes) 分钟")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color.LumenFocus.textSecondary)
-                        .monospacedDigit()
-                }
-                Slider(value: workBinding, in: 15...120, step: 5)
-                    .tint(Color.LumenFocus.ink)
-            }
-            VStack(alignment: .leading, spacing: 6) {
-                HStack {
-                    Text("休息时长")
-                    Spacer()
-                    Text("\(settings.restDurationMinutes) 分钟")
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundColor(Color.LumenFocus.textSecondary)
-                        .monospacedDigit()
-                }
-                Slider(value: restBinding, in: 1...15, step: 1)
-                    .tint(Color.LumenFocus.ink)
-            }
-        }
-    }
-
-    private var restExperienceSection: some View {
-        Section {
-            Picker("环境音", selection: $settings.ambientTrack) {
-                ForEach(AmbientTrack.allCases) { t in
-                    Text(t.displayName).tag(t)
-                }
-            }
-        } header: {
-            Text("休息体验")
-        } footer: {
-            Text("休息开始时自动播放并循环。默认关闭；可在休息时点菜单栏暂时静音。")
-                .font(.system(size: 11))
-                .foregroundColor(Color.LumenFocus.textSecondary)
-        }
+        .onAppear { settings.launchAtLogin = LaunchAtLoginManager.shared.isEnabled() }
+        .alert("无法应用系统设置", isPresented: $showSystemError) {
+            Button("好", role: .cancel) {}
+        } message: { Text(verbatim: systemError) }
     }
 
     private var smartDetectionSection: some View {
         Section {
             Toggle("启用智能避让", isOn: $settings.enableSmartDetection)
-
             Group {
-                Toggle(isOn: $settings.detectVideoCall) {
-                    Label("视频通话 / 屏幕共享", systemImage: "video.fill")
-                }
-                Toggle(isOn: $settings.detectFullscreen) {
-                    Label("全屏演示 / 视频", systemImage: "rectangle.inset.filled")
-                }
-                Toggle(isOn: $settings.detectIdle) {
-                    Label("长时间无操作（≥ 1 分钟）", systemImage: "moon.zzz")
-                }
-                Toggle(isOn: $settings.detectScreenLock) {
-                    Label("屏幕锁定 / 系统睡眠", systemImage: "lock.fill")
-                }
+                Toggle("会议应用在前台时暂缓提醒", isOn: $settings.detectVideoCall)
+                Toggle("演示或媒体应用在前台时暂缓提醒", isOn: $settings.detectFullscreen)
+                Toggle("无操作时使用轻提醒", isOn: $settings.detectIdle)
             }
             .disabled(!settings.enableSmartDetection)
-        } header: {
-            Text("智能避让")
-        } footer: {
-            Text("当检测到以下场景时自动暂停提醒，避免在错误的时机打扰你。")
-                .font(.system(size: 11))
-                .foregroundColor(Color.LumenFocus.textSecondary)
+        } header: { Text("智能避让") } footer: {
+            Text("应用规则依据前台应用判断，不代表已检测到通话或屏幕共享。暂缓提醒时仍累计工作；离开规则应用后留出缓冲再提醒。")
+            Text("无操作不等于休息，只改用轻提醒；锁屏或睡眠才暂停工作计时。")
         }
     }
 
-    private var launchOptionsSection: some View {
-        Section("外观与启动") {
-            Toggle("开机时自动启动", isOn: $settings.launchAtLogin)
-            Toggle(isOn: $settings.showRemainingMinutesInMenuBar) {
-                VStack(alignment: .leading, spacing: 2) {
-                    Text("菜单栏显示剩余分钟数字")
-                    Text("例如：「眼 23m」。关闭则只显示图标")
-                        .font(.system(size: 11))
-                        .foregroundColor(Color.LumenFocus.textSecondary)
-                }
-            }
+    private func applyLaunchAtLogin(_ desired: Bool) {
+        let manager = LaunchAtLoginManager.shared
+        if manager.isEnabled() == desired {
+            settings.launchAtLogin = desired
+            return
         }
-    }
-
-    private var statisticsSection: some View {
-        Section("统计数据") {
-            LabeledContent("本周护眼", value: "\(StatisticsManager.shared.getWeeklyRestCount()) 次")
-            LabeledContent("本周用眼", value: StatisticsManager.shared.getWeeklyWorkDurationFormatted())
-            LabeledContent("平均每天", value: "\(StatisticsManager.shared.getDailyAverageRestCount()) 次")
-            Button("查看详细统计") {
-                StatisticsWindowManager.shared.show()
-            }
-        }
-    }
-
-    private var languageSection: some View {
-        Section {
-            Picker("语言", selection: $settings.appLanguage) {
-                ForEach(AppLanguage.allCases) { lang in
-                    Text(verbatim: lang.displayName).tag(lang)
-                }
-            }
-            Button("重启以应用语言") { relaunchApp() }
-        } header: {
-            Text("语言")
-        } footer: {
-            Text("切换语言需在重启 App 后生效。")
-                .font(.system(size: 11))
-                .foregroundColor(Color.LumenFocus.textSecondary)
+        let success = desired ? manager.enable() : manager.disable()
+        settings.launchAtLogin = manager.isEnabled()
+        if !success || settings.launchAtLogin != desired {
+            systemError = L("系统未能应用开机启动设置。请在系统设置的登录项中检查；当前状态未被更改。")
+            showSystemError = true
         }
     }
 
     private func relaunchApp() {
-        let url = Bundle.main.bundleURL
-        let config = NSWorkspace.OpenConfiguration()
-        config.createsNewApplicationInstance = true
-        NSWorkspace.shared.openApplication(at: url, configuration: config) { _, _ in
-            DispatchQueue.main.async { NSApp.terminate(nil) }
-        }
-    }
-
-    private var aboutSection: some View {
-        Section("关于与隐私") {
-            if let url = URL(string: AppSettings.privacyPolicyURLString) {
-                Link(destination: url) {
-                    Label("隐私政策", systemImage: "hand.raised")
-                }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.createsNewApplicationInstance = true
+        NSWorkspace.shared.openApplication(at: Bundle.main.bundleURL, configuration: configuration) { application, error in
+            DispatchQueue.main.async {
+                if let error {
+                    systemError = error.localizedDescription
+                    showSystemError = true
+                } else if application != nil { NSApp.terminate(nil) }
             }
-            if let mail = URL(string: "mailto:\(AppSettings.supportEmail)") {
-                Link(destination: mail) {
-                    Label("联系支持", systemImage: "envelope")
-                }
-            }
-            LabeledContent("版本", value: appVersionString)
         }
     }
 
     private var appVersionString: String {
-        let v = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
-        let b = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
-        return "\(v) (\(b))"
+        let version = Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String ?? "1.0"
+        let build = Bundle.main.infoDictionary?["CFBundleVersion"] as? String ?? "1"
+        return "\(version) (\(build))"
     }
-
-    private var resetSection: some View {
-        Section {
-            Button(role: .destructive) {
-                showResetConfirmation = true
-            } label: {
-                Text("恢复默认")
-            }
-            .confirmationDialog("确定要恢复默认设置吗？", isPresented: $showResetConfirmation) {
-                Button("恢复", role: .destructive) { settings.resetToDefaults() }
-                Button("取消", role: .cancel) {}
-            }
-        }
-    }
-}
-
-// MARK: - Preview
-
-#Preview {
-    SettingsView()
 }
