@@ -1,21 +1,18 @@
-//
-//  SharedDataAccess.swift
-//  LumenFocus
-//
-//  App Group bridge for sharing today's statistics with the Widget extension.
-//  Falls back to standard UserDefaults if the App Group entitlement isn't set up yet,
-//  so the main app keeps working before the Widget target is added.
-//
-
 import Foundation
+import Security
 
+/// Optional bridge for a future Widget target. The main app's repository never
+/// depends on an App Group and does not mirror statistics every timer tick.
 enum SharedDataAccess {
-    /// 应用组标识符。新建 Widget target 时在「Signing & Capabilities」配置同名 App Group。
     static let appGroupID = "group.Yvette.LumenFocus"
 
-    /// 共享 UserDefaults。App Group 未启用时降级到 standard
-    static let defaults: UserDefaults = {
-        UserDefaults(suiteName: appGroupID) ?? .standard
+    /// Creating a suite without the signing entitlement can cause system warnings.
+    /// Check the signed entitlement first; no fallback writes to standard defaults.
+    private static let defaults: UserDefaults? = {
+        guard let task = SecTaskCreateFromSelf(nil),
+              let groups = SecTaskCopyValueForEntitlement(task, "com.apple.security.application-groups" as CFString, nil) as? [String],
+              groups.contains(appGroupID) else { return nil }
+        return UserDefaults(suiteName: appGroupID)
     }()
 
     private enum Keys {
@@ -26,18 +23,14 @@ enum SharedDataAccess {
         static let updatedAt = "shared.updatedAt"
     }
 
-    // MARK: - Main app writes
-
-    /// 主 app 在 AppState 数据变化时调用，把今日数据写入共享区
     static func writeTodaySnapshot(restCount: Int, workSeconds: Int, currentStreak: Int, weeklyBars: [Int]) {
+        guard let defaults else { return }
         defaults.set(restCount, forKey: Keys.todayRestCount)
         defaults.set(workSeconds, forKey: Keys.todayWorkSeconds)
         defaults.set(currentStreak, forKey: Keys.currentStreak)
         defaults.set(weeklyBars, forKey: Keys.weeklyBars)
         defaults.set(Date(), forKey: Keys.updatedAt)
     }
-
-    // MARK: - Widget reads
 
     struct TodaySnapshot {
         let restCount: Int
@@ -49,11 +42,11 @@ enum SharedDataAccess {
 
     static func readTodaySnapshot() -> TodaySnapshot {
         TodaySnapshot(
-            restCount: defaults.integer(forKey: Keys.todayRestCount),
-            workSeconds: defaults.integer(forKey: Keys.todayWorkSeconds),
-            currentStreak: defaults.integer(forKey: Keys.currentStreak),
-            weeklyBars: defaults.array(forKey: Keys.weeklyBars) as? [Int] ?? [],
-            updatedAt: defaults.object(forKey: Keys.updatedAt) as? Date
+            restCount: defaults?.integer(forKey: Keys.todayRestCount) ?? 0,
+            workSeconds: defaults?.integer(forKey: Keys.todayWorkSeconds) ?? 0,
+            currentStreak: defaults?.integer(forKey: Keys.currentStreak) ?? 0,
+            weeklyBars: defaults?.array(forKey: Keys.weeklyBars) as? [Int] ?? [],
+            updatedAt: defaults?.object(forKey: Keys.updatedAt) as? Date
         )
     }
 }

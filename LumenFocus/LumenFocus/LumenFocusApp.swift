@@ -18,5 +18,13 @@ struct LumenFocusApp: App {
         Settings {
             EmptyView()
         }
+        .commands {
+            // Use the same settings window from the native app menu and popover.
+            // Otherwise SwiftUI's default Command-comma opens the empty scene.
+            CommandGroup(replacing: .appSettings) {
+                Button("设置…") { SettingsWindowManager.shared.showSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+        }
     }
 }

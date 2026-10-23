@@ -12,20 +12,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     // MARK: - Properties
 
     private var menuBarController: MenuBarController?
-    private let timerManager = TimerManager.shared
-    private let restManager = RestManager.shared
+    private lazy var timerManager = TimerManager.shared
+    private lazy var restManager = RestManager.shared
+
+    private var isTestHost: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+            || NSClassFromString("XCTestCase") != nil
+    }
 
     // MARK: - Application Lifecycle
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // Hosted unit tests must never initialize production timers or preferences.
+        guard !isTestHost else { return }
         // 隐藏Dock图标（通过Info.plist配置 LSUIElement = YES）
         // 这里作为备用方案，确保应用不显示在Dock
         NSApp.setActivationPolicy(.accessory)
 
-        // 注册诊断订阅（崩溃 / 卡顿数据落本地，可在「设置 → 帮助」导出）
+        _ = restManager
+
+        // 注册诊断订阅（崩溃 / 卡顿数据仅落本地）
         DiagnosticsManager.shared.register()
 
-        // 调度周报（如果通知已授权）
+        // 清除旧版本包含过期快照的重复周报
         WeeklyRecapManager.shared.bootstrap()
 
         // 预热环境感知（启动时即触发首次评估）
@@ -52,6 +61,7 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        guard !isTestHost else { return }
         // 停止定时器
         timerManager.stop()
 

@@ -1,146 +1,181 @@
-//
-//  RestManager.swift
-//  LumenFocus
-//
-//  Pure rendering layer for rest overlay windows.
-//  Subscribes to RestController.stage and creates/destroys NSWindow accordingly.
-//  No business state, no race-condition guards — those concerns belong to RestController.
-//
-
 import Cocoa
 import Combine
 
-/// 休息渲染管理器 — 监听 `RestController.stage` 维护遮罩窗口
+/// Renders the current reminder/rest state without deciding when a rest is due.
 final class RestManager {
     static let shared = RestManager()
-
-    // MARK: - Private
-
     private var overlayWindows: [RestOverlayWindow] = []
-    private var countdownTimer: Timer?
+    private var reminderPanel: BreakReminderPanel?
     private var cancellables = Set<AnyCancellable>()
-
+    private var lastExternalApplication: NSRunningApplication?
+    private var returnApplication: NSRunningApplication?
     private let appState = AppState.shared
     private let restController = RestController.shared
 
     private init() {
-        setupSubscriptions()
-    }
-
-    // MARK: - Setup
-
-    private func setupSubscriptions() {
-        // 阶段变化驱动窗口生命周期
+        rememberExternalApplication(NSWorkspace.shared.frontmostApplication)
+        NotificationCenter.default.publisher(for: NSApplication.didChangeScreenParametersNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in self?.screensChanged() }
+            .store(in: &cancellables)
+        NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didActivateApplicationNotification)
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] notification in
+                self?.rememberExternalApplication(notification.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)
+            }
+            .store(in: &cancellables)
         restController.stage
+            // TimerManager publishes on the main thread. Deliver immediately so
+            // willSleep removes overlays before the run loop is suspended.
+            .sink { [weak self] stage in self?.render(stage) }
+            .store(in: &cancellables)
+        appState.$currentPhase
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] stage in
-                self?.handleStageChange(stage)
+            .sink { [weak self] phase in
+                if phase == .reminderDue { self?.showReminder() } else { self?.hideReminder() }
             }
             .store(in: &cancellables)
-
-        // 屏幕配置变化（插拔显示器）
-        NotificationCenter.default
-            .publisher(for: NSApplication.didChangeScreenParametersNotification)
+        appState.$remainingSeconds
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                self?.handleScreenConfigurationChange()
-            }
+            .sink { [weak self] seconds in self?.overlayWindows.forEach { $0.updateCountdown(seconds: seconds) } }
             .store(in: &cancellables)
     }
 
-    // MARK: - Stage handling
+    private func rememberExternalApplication(_ application: NSRunningApplication?) {
+        guard let application, application.processIdentifier != ProcessInfo.processInfo.processIdentifier else { return }
+        lastExternalApplication = application
+    }
 
-    private func handleStageChange(_ stage: RestStage) {
+    private func render(_ stage: RestStage) {
         switch stage {
         case .idle:
-            tearDownWindows()
+            removeOverlays(returnFocus: true)
         case .fadingIn:
-            if overlayWindows.isEmpty {
-                createOverlayWindows()
-                overlayWindows.forEach { $0.fadeIn() }
-                startCountdownTimer()
-            }
+            hideReminder()
+            guard overlayWindows.isEmpty else { return }
+            returnApplication = lastExternalApplication
+            createOverlays()
+            overlayWindows.forEach { $0.fadeIn(duration: RestController.fadeInDuration) }
         case .midRest:
-            // 主体阶段：窗口保持，M3 在这里嵌入呼吸/远焦点视图
-            break
+            if overlayWindows.isEmpty { createOverlays() }
+            overlayWindows.forEach { $0.showDimmed() }
         case .fadingOut:
-            overlayWindows.forEach { $0.fadeOut() }
+            overlayWindows.forEach { $0.fadeOut(duration: RestController.fadeOutDuration) }
         }
     }
 
-    private func tearDownWindows() {
-        stopCountdownTimer()
+    private func preferredScreen() -> NSScreen? {
+        NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main ?? NSScreen.screens.first
+    }
+
+    private func createOverlays() {
+        let screens = NSScreen.screens
+        // Freeze primary identity before creating/activating windows; NSScreen.main can then change.
+        let primary = preferredScreen()
+        for screen in screens {
+            let window = RestOverlayWindow(screen: screen, isPrimaryDisplay: screen == primary)
+            window.updateCountdown(seconds: appState.remainingSeconds)
+            window.orderFrontRegardless()
+            overlayWindows.append(window)
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        let key = overlayWindows.first(where: \.isPrimaryDisplay) ?? overlayWindows.first
+        key?.makeKeyAndOrderFront(nil)
+    }
+
+    private func removeOverlays(returnFocus: Bool) {
+        let hadOverlays = !overlayWindows.isEmpty
         let windows = overlayWindows
         overlayWindows.removeAll()
-        windows.forEach { window in
-            window.stopAllAnimations()
-            window.cleanup()
-            window.orderOut(nil)
-            window.close()
+        windows.forEach { $0.cleanup(); $0.orderOut(nil); $0.close() }
+        if returnFocus, hadOverlays {
+            let application = returnApplication
+            returnApplication = nil
+            if NSApp.isActive, let application, !application.isTerminated {
+                application.activate(options: [.activateIgnoringOtherApps])
+            }
         }
     }
 
-    // MARK: - Window construction
-
-    private func createOverlayWindows() {
-        // 防御性清理（理论上 idle → fadingIn 时窗口列表应为空，但热插拔等情况兜底）
-        overlayWindows.forEach { $0.close() }
-        overlayWindows.removeAll()
-
-        for screen in NSScreen.screens {
-            let window = RestOverlayWindow(screen: screen)
-            window.orderFrontRegardless()
-            overlayWindows.append(window)
-        }
-
-        // 关键：菜单栏（accessory）App 必须先激活，遮罩窗口才能成为 key window
-        // 接收键盘事件，否则 ESC 收不到、用户被全屏遮罩困住。
-        NSApp.activate(ignoringOtherApps: true)
-        let keyWindow = overlayWindows.first(where: { $0.screen == NSScreen.main }) ?? overlayWindows.first
-        keyWindow?.makeKeyAndOrderFront(nil)
-        keyWindow?.makeFirstResponder(keyWindow)
+    private func showReminder() {
+        guard reminderPanel == nil, let screen = preferredScreen() else { return }
+        let panel = BreakReminderPanel()
+        position(panel, on: screen)
+        reminderPanel = panel
+        // A non-activating panel neither becomes key nor steals the current app's focus.
+        panel.orderFrontRegardless()
     }
 
-    // MARK: - Countdown
-
-    private func startCountdownTimer() {
-        stopCountdownTimer()
-        let timer = Timer(timeInterval: 1.0, repeats: true) { [weak self] _ in
-            self?.updateCountdown()
-        }
-        RunLoop.main.add(timer, forMode: .common)
-        countdownTimer = timer
-        updateCountdown()
+    private func hideReminder() {
+        reminderPanel?.orderOut(nil)
+        reminderPanel?.close()
+        reminderPanel = nil
     }
 
-    private func stopCountdownTimer() {
-        countdownTimer?.invalidate()
-        countdownTimer = nil
+    private func position(_ panel: NSPanel, on screen: NSScreen) {
+        let frame = screen.visibleFrame
+        panel.setFrameOrigin(NSPoint(x: frame.maxX - panel.frame.width - 16, y: frame.maxY - panel.frame.height - 16))
     }
 
-    private func updateCountdown() {
-        let remaining = appState.remainingSeconds
-        overlayWindows.forEach { $0.updateCountdown(seconds: remaining) }
-    }
-
-    // MARK: - Screen configuration
-
-    private func handleScreenConfigurationChange() {
-        // 只有正在休息时才重建（不论 fadingIn / midRest / fadingOut）
-        guard restController.stage.value != .idle else { return }
-
-        Log.rest.info("Screen configuration changed; rebuilding overlay windows")
-
-        overlayWindows.forEach { $0.close() }
-        overlayWindows.removeAll()
-
-        for screen in NSScreen.screens {
-            let window = RestOverlayWindow(screen: screen)
-            // 跳过渐变动画，立即显示为暗态
-            window.contentView?.subviews.first?.alphaValue = 0.7
-            window.orderFrontRegardless()
-            overlayWindows.append(window)
-            window.updateCountdown(seconds: appState.remainingSeconds)
+    private func screensChanged() {
+        if let panel = reminderPanel, let screen = preferredScreen() { position(panel, on: screen) }
+        let stage = restController.stage.value
+        guard stage != .idle else { return }
+        removeOverlays(returnFocus: false)
+        createOverlays()
+        switch stage {
+        case .fadingOut: overlayWindows.forEach { $0.showDimmed(); $0.fadeOut(duration: RestController.fadeOutDuration) }
+        case .fadingIn, .midRest: overlayWindows.forEach { $0.showDimmed() }
+        case .idle: break
         }
     }
+}
+
+/// A local, actionable reminder; no notification permission and no app activation required.
+private final class BreakReminderPanel: NSPanel {
+    init() {
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 410, height: 196), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        level = .floating
+        collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+        isFloatingPanel = true
+        hidesOnDeactivate = false
+        isReleasedWhenClosed = false
+        backgroundColor = .windowBackgroundColor
+        hasShadow = true
+        let content = NSView()
+        content.wantsLayer = true
+        content.layer?.cornerRadius = 12
+        contentView = content
+        let title = NSTextField(labelWithString: L("给眼睛一个小空隙"))
+        title.font = .systemFont(ofSize: 18, weight: .medium)
+        let detail = NSTextField(wrappingLabelWithString: L("准备好再开始，当前工作不会被遮挡。"))
+        detail.font = .systemFont(ofSize: 13)
+        detail.textColor = .secondaryLabelColor
+        let start = NSButton(title: L("开始休息"), target: self, action: #selector(startBreak))
+        let postpone = NSButton(title: L("5 分钟后再提醒"), target: self, action: #selector(postponeBreak))
+        let skip = NSButton(title: L("跳过本次"), target: self, action: #selector(skipBreak))
+        [start, postpone, skip].forEach { $0.bezelStyle = .rounded }
+        let actions = NSStackView(views: [start, postpone, skip])
+        actions.orientation = .horizontal
+        actions.spacing = 8
+        let stack = NSStackView(views: [title, detail, actions])
+        stack.orientation = .vertical
+        stack.alignment = .leading
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(stack)
+        NSLayoutConstraint.activate([
+            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
+            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            detail.widthAnchor.constraint(equalTo: stack.widthAnchor)
+        ])
+        setAccessibilityLabel(L("LumenFocus 休息提醒"))
+    }
+
+    override var canBecomeKey: Bool { false }
+    override var canBecomeMain: Bool { false }
+    @objc private func startBreak() { TimerManager.shared.triggerManualRest() }
+    @objc private func postponeBreak() { TimerManager.shared.snoozeReminder(by: 300) }
+    @objc private func skipBreak() { TimerManager.shared.skipReminder() }
 }

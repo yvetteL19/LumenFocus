@@ -6,16 +6,41 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+        D00000000000000000000001 /* PBXContainerItemProxy */ = {
+            isa = PBXContainerItemProxy;
+            containerPortal = C304EC032F3325150041FE0B /* Project object */;
+            proxyType = 1;
+            remoteGlobalIDString = C304EC0A2F3325150041FE0B;
+            remoteInfo = LumenFocus;
+        };
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
+        D00000000000000000000002 /* LumenFocusTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LumenFocusTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 		C304EC0B2F3325150041FE0B /* LumenFocus.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LumenFocus.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+        D0000000000000000000000C /* App metadata */ = {
+            isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+            membershipExceptions = (Info.plist);
+            target = C304EC0A2F3325150041FE0B /* LumenFocus */;
+        };
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		C304EC0D2F3325150041FE0B /* LumenFocus */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (D0000000000000000000000C /* App metadata */);
 			path = LumenFocus;
 			sourceTree = "<group>";
 		};
+        D00000000000000000000003 /* LumenFocusTests */ = {
+            isa = PBXFileSystemSynchronizedRootGroup;
+            path = LumenFocusTests;
+            sourceTree = "<group>";
+        };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -26,6 +51,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        D00000000000000000000004 /* Frameworks */ = {
+            isa = PBXFrameworksBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
 /* End PBXFrameworksBuildPhase section */
 
 /* Begin PBXGroup section */
@@ -33,6 +64,7 @@
 			isa = PBXGroup;
 			children = (
 				C304EC0D2F3325150041FE0B /* LumenFocus */,
+                D00000000000000000000003 /* LumenFocusTests */,
 				C304EC0C2F3325150041FE0B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +73,7 @@
 			isa = PBXGroup;
 			children = (
 				C304EC0B2F3325150041FE0B /* LumenFocus.app */,
+                D00000000000000000000002 /* LumenFocusTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +103,23 @@
 			productReference = C304EC0B2F3325150041FE0B /* LumenFocus.app */;
 			productType = "com.apple.product-type.application";
 		};
+        D00000000000000000000005 /* LumenFocusTests */ = {
+            isa = PBXNativeTarget;
+            buildConfigurationList = D00000000000000000000006 /* Test configuration list */;
+            buildPhases = (
+                D00000000000000000000007 /* Sources */,
+                D00000000000000000000004 /* Frameworks */,
+                D00000000000000000000008 /* Resources */,
+            );
+            buildRules = ();
+            dependencies = (D00000000000000000000009 /* Target dependency */);
+            fileSystemSynchronizedGroups = (D00000000000000000000003 /* LumenFocusTests */);
+            name = LumenFocusTests;
+            packageProductDependencies = ();
+            productName = LumenFocusTests;
+            productReference = D00000000000000000000002 /* LumenFocusTests.xctest */;
+            productType = "com.apple.product-type.bundle.unit-test";
+        };
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -80,6 +130,10 @@
 				LastSwiftUpdateCheck = 1640;
 				LastUpgradeCheck = 1640;
 				TargetAttributes = {
+                    D00000000000000000000005 = {
+                        CreatedOnToolsVersion = 16.4;
+                        TestTargetID = C304EC0A2F3325150041FE0B;
+                    };
 					C304EC0A2F3325150041FE0B = {
 						CreatedOnToolsVersion = 16.4;
 					};
@@ -101,6 +155,7 @@
 			projectRoot = "";
 			targets = (
 				C304EC0A2F3325150041FE0B /* LumenFocus */,
+                D00000000000000000000005 /* LumenFocusTests */,
 			);
 		};
 /* End PBXProject section */
@@ -113,6 +168,12 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        D00000000000000000000008 /* Resources */ = {
+            isa = PBXResourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
 /* End PBXResourcesBuildPhase section */
 
 /* Begin PBXSourcesBuildPhase section */
@@ -123,7 +184,21 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+        D00000000000000000000007 /* Sources */ = {
+            isa = PBXSourcesBuildPhase;
+            buildActionMask = 2147483647;
+            files = ();
+            runOnlyForDeploymentPostprocessing = 0;
+        };
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+        D00000000000000000000009 /* Target dependency */ = {
+            isa = PBXTargetDependency;
+            target = C304EC0A2F3325150041FE0B /* LumenFocus */;
+            targetProxy = D00000000000000000000001 /* PBXContainerItemProxy */;
+        };
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		C304EC1A2F3325160041FE0B /* Debug */ = {
@@ -254,8 +329,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LumenFocus/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -279,8 +354,8 @@
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
 				ENABLE_PREVIEWS = YES;
-				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LumenFocus/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -294,6 +369,36 @@
 			};
 			name = Release;
 		};
+        D0000000000000000000000A /* Debug */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                BUNDLE_LOADER = "$(TEST_HOST)";
+                CODE_SIGN_STYLE = Automatic;
+                GENERATE_INFOPLIST_FILE = YES;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks");
+                PRODUCT_BUNDLE_IDENTIFIER = Yvette.LumenFocus.Tests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_VERSION = 5.0;
+                TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LumenFocus.app/Contents/MacOS/LumenFocus";
+                ENABLE_APP_SANDBOX = NO;
+            };
+            name = Debug;
+        };
+        D0000000000000000000000B /* Release */ = {
+            isa = XCBuildConfiguration;
+            buildSettings = {
+                BUNDLE_LOADER = "$(TEST_HOST)";
+                CODE_SIGN_STYLE = Automatic;
+                GENERATE_INFOPLIST_FILE = YES;
+                LD_RUNPATH_SEARCH_PATHS = ("$(inherited)", "@executable_path/../Frameworks", "@loader_path/../Frameworks");
+                PRODUCT_BUNDLE_IDENTIFIER = Yvette.LumenFocus.Tests;
+                PRODUCT_NAME = "$(TARGET_NAME)";
+                SWIFT_VERSION = 5.0;
+                TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LumenFocus.app/Contents/MacOS/LumenFocus";
+                ENABLE_APP_SANDBOX = NO;
+            };
+            name = Release;
+        };
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -315,6 +420,12 @@
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
 		};
+        D00000000000000000000006 /* Test configuration list */ = {
+            isa = XCConfigurationList;
+            buildConfigurations = (D0000000000000000000000A /* Debug */, D0000000000000000000000B /* Release */);
+            defaultConfigurationIsVisible = 0;
+            defaultConfigurationName = Release;
+        };
 /* End XCConfigurationList section */
 	};
 	rootObject = C304EC032F3325150041FE0B /* Project object */;

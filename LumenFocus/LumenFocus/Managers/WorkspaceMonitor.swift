@@ -1,204 +1,157 @@
-//
-//  WorkspaceMonitor.swift
-//  LumenFocus
-//
-//  Aggregates environment signals (idle / fullscreen / video call / screen lock)
-//  into a single publisher TimerManager subscribes to.
-//
-//  Sandbox-safe: uses only NSWorkspace notifications, frontmost-app bundle ID,
-//  and CGEventSource idle timing — all permitted without extra entitlements.
-//
-
 import Foundation
 import AppKit
 import Combine
 import CoreGraphics
 
-/// 环境感知信号
 struct PauseSignal: Equatable {
     let reason: AutoSuspendReason
-    /// 用户可见的简短说明（如「Zoom 会议中」「Keynote 演示」）
     let detail: String?
 }
 
-/// 工作区环境监视器
+/// Remembers the user's last external app while LumenFocus's own windows are open.
+/// Pure value logic so app activation and runtime preference changes can be tested.
+struct ForegroundAppRuleResolver {
+    struct Application: Equatable {
+        let bundleID: String
+        let name: String?
+    }
+
+    private(set) var lastExternalApplication: Application?
+
+    private static let videoCallBundleIDs: Set<String> = [
+        "us.zoom.xos", "com.microsoft.teams", "com.microsoft.teams2", "com.apple.FaceTime",
+        "com.google.GoogleMeet", "com.cisco.webexmeetingsapp", "com.webex.meetingmanager",
+        "com.skype.skype", "com.tencent.meeting", "com.alibaba.DingTalkMac",
+        "com.tencent.WeWorkMac", "com.electron.discord", "com.bluejeansnet.BlueJeans"
+    ]
+    private static let fullscreenAppBundleIDs: Set<String> = [
+        "com.apple.iWork.Keynote", "com.microsoft.PowerPoint", "com.apple.QuickTimePlayerX",
+        "com.colliderli.iina", "io.mpv", "org.videolan.vlc"
+    ]
+
+    mutating func resolve(bundleID: String?, name: String?, ownBundleID: String,
+                          enabled: Bool, videoCall: Bool, fullscreen: Bool) -> PauseSignal? {
+        if let bundleID, bundleID != ownBundleID {
+            lastExternalApplication = Application(bundleID: bundleID, name: name)
+        }
+        guard enabled, let application = lastExternalApplication else { return nil }
+        if videoCall && Self.videoCallBundleIDs.contains(application.bundleID) {
+            return PauseSignal(reason: .videoCall, detail: application.name)
+        }
+        if fullscreen && Self.fullscreenAppBundleIDs.contains(application.bundleID) {
+            return PauseSignal(reason: .fullscreen, detail: application.name)
+        }
+        return nil
+    }
+}
+
+/// Uses local app/idle signals, not a claim that a real call or fullscreen session was detected.
+/// Physical lock/sleep is separate from optional reminder suppression and is always observed.
 final class WorkspaceMonitor {
     static let shared = WorkspaceMonitor()
 
-    /// 当前应否自动暂停。`nil` 表示无暂停信号；非 nil 表示对应原因
+    let environment = CurrentValueSubject<CycleEnvironment, Never>(.available)
     let pauseSignal = CurrentValueSubject<PauseSignal?, Never>(nil)
-
-    // MARK: - Tunables (公开以便设置项控制 / 测试覆盖)
-
-    /// idle 阈值：无键鼠输入超过多少秒算 idle
     var idleThresholdSeconds: TimeInterval = 60
 
-    /// 评估周期（轮询间隔）
-    private let evaluationInterval: TimeInterval = 10
-
-    // MARK: - Configurable signal switches
-
-    var enableIdle = true
-    var enableVideoCall = true
-    var enableFullscreen = true
-    var enableScreenLock = true
-
-    // MARK: - Bundle ID whitelists
-
-    /// 已知的视频通话 / 屏幕共享应用前台时自动暂停
-    private let videoCallBundleIDs: Set<String> = [
-        "us.zoom.xos",                  // Zoom
-        "com.microsoft.teams",          // Teams (classic)
-        "com.microsoft.teams2",         // Teams (new)
-        "com.apple.FaceTime",
-        "com.google.GoogleMeet",        // Meet
-        "com.cisco.webexmeetingsapp",
-        "com.webex.meetingmanager",
-        "com.skype.skype",
-        "com.tencent.meeting",          // 腾讯会议
-        "com.alibaba.DingTalkMac",      // 钉钉
-        "com.tencent.WeWorkMac",        // 企业微信
-        "com.electron.discord",
-        "com.bluejeansnet.BlueJeans",
-    ]
-
-    /// 已知的全屏体验应用前台时避让（演示 / 视频播放）
-    private let fullscreenAppBundleIDs: Set<String> = [
-        "com.apple.iWork.Keynote",
-        "com.microsoft.PowerPoint",
-        "com.apple.QuickTimePlayerX",
-        "com.colliderli.iina",          // IINA
-        "io.mpv",                       // mpv
-        "org.videolan.vlc",
-    ]
-
-    // MARK: - Private
-
+    private var enabled: Bool
+    private var enableIdle: Bool
+    private var enableVideoCall: Bool
+    private var enableFullscreen: Bool
+    private var enableScreenLock: Bool
     private var pollingTimer: Timer?
     private var cancellables = Set<AnyCancellable>()
     private var sessionLocked = false
+    private var screensSleeping = false
+    private var systemSleeping = false
+    private var foregroundRules = ForegroundAppRuleResolver()
 
     private init() {
-        setupSessionObservers()
-        setupAppActivationObservers()
-        startPolling()
-    }
-
-    // MARK: - Public
-
-    /// 触发一次评估（设置项变化时主动调用）
-    func reevaluate() {
-        evaluate()
-    }
-
-    // MARK: - Setup
-
-    private func setupSessionObservers() {
-        let nc = NSWorkspace.shared.notificationCenter
-
-        nc.publisher(for: NSWorkspace.sessionDidResignActiveNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.sessionLocked = true
-                if self.enableScreenLock {
-                    Log.workspace.info("Session locked → autosuspend")
-                    self.publish(PauseSignal(reason: .screenLocked, detail: nil))
-                }
-            }
-            .store(in: &cancellables)
-
-        nc.publisher(for: NSWorkspace.sessionDidBecomeActiveNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                self.sessionLocked = false
-                Log.workspace.info("Session unlocked")
-                self.evaluate()
-            }
-            .store(in: &cancellables)
-
-        nc.publisher(for: NSWorkspace.screensDidSleepNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                if self.enableScreenLock {
-                    self.publish(PauseSignal(reason: .screenLocked, detail: nil))
-                }
-            }
-            .store(in: &cancellables)
-
-        nc.publisher(for: NSWorkspace.screensDidWakeNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.evaluate() }
-            .store(in: &cancellables)
-    }
-
-    private func setupAppActivationObservers() {
-        let nc = NSWorkspace.shared.notificationCenter
-
-        nc.publisher(for: NSWorkspace.didActivateApplicationNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.evaluate() }
-            .store(in: &cancellables)
-
-        nc.publisher(for: NSWorkspace.didDeactivateApplicationNotification)
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in self?.evaluate() }
-            .store(in: &cancellables)
-    }
-
-    private func startPolling() {
-        let timer = Timer(timeInterval: evaluationInterval, repeats: true) { [weak self] _ in
-            self?.evaluate()
-        }
+        let settings = AppSettings.shared
+        enabled = settings.enableSmartDetection
+        enableIdle = settings.detectIdle
+        enableVideoCall = settings.detectVideoCall
+        enableFullscreen = settings.detectFullscreen
+        enableScreenLock = settings.detectScreenLock
+        setupObservers()
+        let timer = Timer(timeInterval: 10, repeats: true) { [weak self] _ in self?.reevaluate() }
         RunLoop.main.add(timer, forMode: .common)
         pollingTimer = timer
-        evaluate()
+        reevaluate()
     }
 
-    // MARK: - Evaluation (priority: lock > video call > fullscreen > idle)
+    func configure(enabled: Bool, idle: Bool, videoCall: Bool, fullscreen: Bool, screenLock: Bool) {
+        self.enabled = enabled
+        enableIdle = idle
+        enableVideoCall = videoCall
+        enableFullscreen = fullscreen
+        enableScreenLock = screenLock
+        reevaluate()
+    }
 
-    private func evaluate() {
-        // 屏幕锁定优先级最高，由 session 通知直接驱动
-        if sessionLocked && enableScreenLock {
-            publish(PauseSignal(reason: .screenLocked, detail: nil))
+    func reevaluate() {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { [weak self] in self?.reevaluate() }
             return
         }
-
-        if let frontmost = NSWorkspace.shared.frontmostApplication,
-           let bundleID = frontmost.bundleIdentifier {
-
-            if enableVideoCall && videoCallBundleIDs.contains(bundleID) {
-                publish(PauseSignal(reason: .videoCall, detail: frontmost.localizedName))
-                return
-            }
-            if enableFullscreen && fullscreenAppBundleIDs.contains(bundleID) {
-                publish(PauseSignal(reason: .fullscreen, detail: frontmost.localizedName))
-                return
-            }
-        }
-
-        if enableIdle {
-            let idle = currentIdleSeconds()
-            if idle >= idleThresholdSeconds {
-                publish(PauseSignal(reason: .idle, detail: nil))
-                return
+        let away = sessionLocked || screensSleeping || systemSleeping
+        var next = CycleEnvironment(reason: nil, detail: nil, isAway: away)
+        if away {
+            // Physical absence is safety/lifecycle handling, never an optional heuristic.
+            next.reason = .screenLocked
+        } else {
+            let frontmost = NSWorkspace.shared.frontmostApplication
+            let rule = foregroundRules.resolve(bundleID: frontmost?.bundleIdentifier,
+                                               name: frontmost?.localizedName,
+                                               ownBundleID: Bundle.main.bundleIdentifier ?? "Yvette.LumenFocus",
+                                               enabled: enabled, videoCall: enableVideoCall,
+                                               fullscreen: enableFullscreen)
+            next.reason = rule?.reason
+            next.detail = rule?.detail
+            if enabled && next.reason == nil && enableIdle && currentIdleSeconds() >= idleThresholdSeconds {
+                next.reason = .idle
             }
         }
-
-        publish(nil)
+        publish(next)
     }
 
-    private func publish(_ next: PauseSignal?) {
-        guard next != pauseSignal.value else { return }
-        Log.workspace.debug("PauseSignal: \(String(describing: self.pauseSignal.value), privacy: .public) → \(String(describing: next), privacy: .public)")
-        pauseSignal.send(next)
+    private func setupObservers() {
+        observe(NSWorkspace.sessionDidResignActiveNotification) { $0.sessionLocked = true }
+        observe(NSWorkspace.sessionDidBecomeActiveNotification) { $0.sessionLocked = false }
+        observe(NSWorkspace.screensDidSleepNotification) { $0.screensSleeping = true }
+        observe(NSWorkspace.screensDidWakeNotification) { $0.screensSleeping = false }
+        observe(NSWorkspace.willSleepNotification) { $0.systemSleeping = true }
+        observe(NSWorkspace.didWakeNotification) { $0.systemSleeping = false }
+        observe(NSWorkspace.didActivateApplicationNotification) { _ in }
+        observe(NSWorkspace.didDeactivateApplicationNotification) { _ in }
     }
 
-    /// 系统范围内距离最后一次键鼠输入的秒数
+    private func observe(_ name: Notification.Name, update: @escaping (WorkspaceMonitor) -> Void) {
+        NSWorkspace.shared.notificationCenter.publisher(for: name)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let action = { [weak self] in
+                    guard let self else { return }
+                    update(self)
+                    self.reevaluate()
+                }
+                if Thread.isMainThread { action() }
+                else { DispatchQueue.main.async(execute: action) }
+            }
+            .store(in: &cancellables)
+    }
+
+    private func publish(_ next: CycleEnvironment) {
+        guard environment.value != next else { return }
+        // Application names are for the live UI, never a persistent activity log.
+        Log.workspace.debug("Environment changed; away=\(next.isAway)")
+        environment.send(next)
+        let signal = next.suppressesReminder
+            ? PauseSignal(reason: next.reason ?? .screenLocked, detail: next.detail) : nil
+        if signal != pauseSignal.value { pauseSignal.send(signal) }
+    }
+
     private func currentIdleSeconds() -> TimeInterval {
-        // kCGAnyInputEventType = ~0；Swift 中需手动构造
         guard let anyInputType = CGEventType(rawValue: ~0) else { return 0 }
         return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: anyInputType)
     }

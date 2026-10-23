@@ -1,204 +1,161 @@
-//
-//  AppSettings.swift
-//  LumenFocus
-//
-//  Created by AI Director on 2026/2/4.
-//
-
+// Preferences are persisted independently from runtime state. Environment consumers
+// observe these values; changing a preference never initializes another singleton.
 import Foundation
 import Combine
 
-/// App 显示语言（覆盖系统）。通过写入 `AppleLanguages` 实现，重启后生效。
 enum AppLanguage: String, CaseIterable, Identifiable {
-    case system            // 跟随系统
+    case system
     case zhHans = "zh-Hans"
     case en
-
     var id: String { rawValue }
-
     var displayName: String {
         switch self {
         case .system: return L("跟随系统")
         case .zhHans: return "简体中文"
-        case .en:     return "English"
+        case .en: return "English"
         }
     }
 }
 
-/// 应用设置 - 用户可配置参数
-class AppSettings: ObservableObject {
+enum ReminderMode: String, CaseIterable, Identifiable {
+    case gentle
+    case immersive
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .gentle: return L("轻提醒")
+        case .immersive: return L("沉浸渐暗")
+        }
+    }
+}
+
+final class AppSettings: ObservableObject {
     static let shared = AppSettings()
+    private let defaults: UserDefaults
 
-    // MARK: - Published Properties
-
-    /// 工作时长（分钟）- 范围: 15-120分钟，默认40分钟
     @Published var workDurationMinutes: Int {
-        didSet {
-            UserDefaults.standard.set(workDurationMinutes, forKey: Keys.workDuration)
-        }
+        didSet { defaults.set(workDurationMinutes, forKey: Keys.workDuration) }
     }
-
-    /// 休息时长（分钟）- 范围: 1-15分钟，默认5分钟
-    @Published var restDurationMinutes: Int {
-        didSet {
-            UserDefaults.standard.set(restDurationMinutes, forKey: Keys.restDuration)
-        }
+    /// The actual time away from the screen, excluding fade-in and fade-out.
+    @Published var restDurationSeconds: Int {
+        didSet { defaults.set(restDurationSeconds, forKey: Keys.restDurationSeconds) }
     }
-
-    /// 是否开机自启动
+    @Published var reminderMode: ReminderMode {
+        didSet { defaults.set(reminderMode.rawValue, forKey: Keys.reminderMode) }
+    }
     @Published var launchAtLogin: Bool {
-        didSet {
-            UserDefaults.standard.set(launchAtLogin, forKey: Keys.launchAtLogin)
-        }
+        didSet { defaults.set(launchAtLogin, forKey: Keys.launchAtLogin) }
     }
-
-    // MARK: - Smart detection (M1)
-
-    /// 智能避让总开关
     @Published var enableSmartDetection: Bool {
-        didSet { UserDefaults.standard.set(enableSmartDetection, forKey: Keys.enableSmartDetection) }
+        didSet { defaults.set(enableSmartDetection, forKey: Keys.enableSmartDetection) }
     }
-
-    /// 自动避让：长时间无键鼠输入
     @Published var detectIdle: Bool {
-        didSet { UserDefaults.standard.set(detectIdle, forKey: Keys.detectIdle); WorkspaceMonitor.shared.enableIdle = detectIdle; WorkspaceMonitor.shared.reevaluate() }
+        didSet { defaults.set(detectIdle, forKey: Keys.detectIdle) }
     }
-
-    /// 自动避让：视频通话 / 屏幕共享
     @Published var detectVideoCall: Bool {
-        didSet { UserDefaults.standard.set(detectVideoCall, forKey: Keys.detectVideoCall); WorkspaceMonitor.shared.enableVideoCall = detectVideoCall; WorkspaceMonitor.shared.reevaluate() }
+        didSet { defaults.set(detectVideoCall, forKey: Keys.detectVideoCall) }
     }
-
-    /// 自动避让：全屏应用（演示 / 视频）
     @Published var detectFullscreen: Bool {
-        didSet { UserDefaults.standard.set(detectFullscreen, forKey: Keys.detectFullscreen); WorkspaceMonitor.shared.enableFullscreen = detectFullscreen; WorkspaceMonitor.shared.reevaluate() }
+        didSet { defaults.set(detectFullscreen, forKey: Keys.detectFullscreen) }
     }
-
-    /// 自动避让：屏幕锁定 / 系统睡眠
     @Published var detectScreenLock: Bool {
-        didSet { UserDefaults.standard.set(detectScreenLock, forKey: Keys.detectScreenLock); WorkspaceMonitor.shared.enableScreenLock = detectScreenLock; WorkspaceMonitor.shared.reevaluate() }
+        didSet { defaults.set(detectScreenLock, forKey: Keys.detectScreenLock) }
     }
-
-    // MARK: - Rest experience (M3)
-
-    /// 休息时播放的环境音
     @Published var ambientTrack: AmbientTrack {
-        didSet { UserDefaults.standard.set(ambientTrack.rawValue, forKey: Keys.ambientTrack) }
+        didSet { defaults.set(ambientTrack.rawValue, forKey: Keys.ambientTrack) }
     }
-
-    /// 是否在菜单栏图标旁显示剩余分钟数字
     @Published var showRemainingMinutesInMenuBar: Bool {
-        didSet { UserDefaults.standard.set(showRemainingMinutesInMenuBar, forKey: Keys.showRemainingMinutesInMenuBar) }
+        didSet { defaults.set(showRemainingMinutesInMenuBar, forKey: Keys.showRemainingMinutesInMenuBar) }
     }
-
-    /// App 显示语言（覆盖系统，重启生效）
     @Published var appLanguage: AppLanguage {
         didSet {
-            UserDefaults.standard.set(appLanguage.rawValue, forKey: Keys.appLanguage)
-            Self.applyLanguagePreference(appLanguage)
+            defaults.set(appLanguage.rawValue, forKey: Keys.appLanguage)
+            Self.applyLanguagePreference(appLanguage, defaults: defaults)
         }
     }
-
-    /// 把语言选择写入 AppleLanguages（系统读取它决定本地化）。
-    static func applyLanguagePreference(_ language: AppLanguage) {
-        switch language {
-        case .system:
-            UserDefaults.standard.removeObject(forKey: "AppleLanguages")
-        case .zhHans:
-            UserDefaults.standard.set(["zh-Hans"], forKey: "AppleLanguages")
-        case .en:
-            UserDefaults.standard.set(["en"], forKey: "AppleLanguages")
-        }
-    }
-
-    // MARK: - Constants
 
     private enum Keys {
         static let workDuration = "workDurationMinutes"
-        static let restDuration = "restDurationMinutes"
+        static let legacyRestDuration = "restDurationMinutes"
+        static let restDurationSeconds = "restDurationSeconds"
+        static let reminderMode = "reminderMode"
         static let launchAtLogin = "launchAtLogin"
         static let hasCompletedOnboarding = "hasCompletedOnboarding"
-
         static let enableSmartDetection = "enableSmartDetection"
         static let detectIdle = "detectIdle"
         static let detectVideoCall = "detectVideoCall"
         static let detectFullscreen = "detectFullscreen"
         static let detectScreenLock = "detectScreenLock"
-
         static let ambientTrack = "ambientTrack"
         static let showRemainingMinutesInMenuBar = "showRemainingMinutesInMenuBar"
         static let appLanguage = "appLanguage"
     }
 
-    /// 默认工作时长（分钟）
     static let defaultWorkDuration = 40
-
-    /// 默认休息时长（分钟）
-    static let defaultRestDuration = 5
-
-    // MARK: - App info
-
-    /// 隐私政策页面（GitHub Pages，main 分支 /docs 目录发布）。
+    static let defaultRestDurationSeconds = 300
+    static let workDurationRange = 15...120
+    static let restDurationSecondsRange = 20...900
     static let privacyPolicyURLString = "https://yvettel19.github.io/LumenFocus/"
-
-    /// 支持邮箱
     static let supportEmail = "yveluo@outlook.com"
 
-    /// 工作时长范围（分钟）
-    static let workDurationRange = 15...120
-
-    /// 休息时长范围（分钟）
-    static let restDurationRange = 1...15
-
-    // MARK: - Initialization
-
-    private init() {
-        self.workDurationMinutes = UserDefaults.standard.object(forKey: Keys.workDuration) as? Int ?? Self.defaultWorkDuration
-        self.restDurationMinutes = UserDefaults.standard.object(forKey: Keys.restDuration) as? Int ?? Self.defaultRestDuration
-        self.launchAtLogin = UserDefaults.standard.bool(forKey: Keys.launchAtLogin)
-
-        // 智能避让默认全开（首次启动 = 全开）
-        self.enableSmartDetection = UserDefaults.standard.object(forKey: Keys.enableSmartDetection) as? Bool ?? true
-        self.detectIdle = UserDefaults.standard.object(forKey: Keys.detectIdle) as? Bool ?? true
-        self.detectVideoCall = UserDefaults.standard.object(forKey: Keys.detectVideoCall) as? Bool ?? true
-        self.detectFullscreen = UserDefaults.standard.object(forKey: Keys.detectFullscreen) as? Bool ?? true
-        self.detectScreenLock = UserDefaults.standard.object(forKey: Keys.detectScreenLock) as? Bool ?? true
-
-        // 环境音默认关
-        let trackRaw = UserDefaults.standard.string(forKey: Keys.ambientTrack) ?? AmbientTrack.off.rawValue
-        self.ambientTrack = AmbientTrack(rawValue: trackRaw) ?? .off
-
-        // 菜单栏剩余分钟数字默认关（保持图标极简）
-        self.showRemainingMinutesInMenuBar = UserDefaults.standard.object(forKey: Keys.showRemainingMinutesInMenuBar) as? Bool ?? false
-
-        // 显示语言（默认跟随系统）
-        let langRaw = UserDefaults.standard.string(forKey: Keys.appLanguage) ?? AppLanguage.system.rawValue
-        self.appLanguage = AppLanguage(rawValue: langRaw) ?? .system
+    /// An explicit defaults suite makes tests independent of the user's preferences.
+    init(defaults: UserDefaults = .standard) {
+        self.defaults = defaults
+        let work = defaults.object(forKey: Keys.workDuration) as? Int ?? Self.defaultWorkDuration
+        workDurationMinutes = min(Self.workDurationRange.upperBound, max(Self.workDurationRange.lowerBound, work))
+        let rest: Int
+        if let seconds = defaults.object(forKey: Keys.restDurationSeconds) as? Int {
+            rest = seconds
+        } else if let minutes = defaults.object(forKey: Keys.legacyRestDuration) as? Int {
+            // Clamp before multiplying so malformed legacy values cannot overflow.
+            rest = min(15, max(1, minutes)) * 60
+        } else {
+            rest = Self.defaultRestDurationSeconds
+        }
+        let boundedRest = min(Self.restDurationSecondsRange.upperBound, max(Self.restDurationSecondsRange.lowerBound, rest))
+        restDurationSeconds = boundedRest
+        defaults.set(boundedRest, forKey: Keys.restDurationSeconds)
+        reminderMode = ReminderMode(rawValue: defaults.string(forKey: Keys.reminderMode) ?? "") ?? .gentle
+        launchAtLogin = defaults.bool(forKey: Keys.launchAtLogin)
+        enableSmartDetection = defaults.object(forKey: Keys.enableSmartDetection) as? Bool ?? true
+        detectIdle = defaults.object(forKey: Keys.detectIdle) as? Bool ?? true
+        detectVideoCall = defaults.object(forKey: Keys.detectVideoCall) as? Bool ?? true
+        detectFullscreen = defaults.object(forKey: Keys.detectFullscreen) as? Bool ?? true
+        detectScreenLock = defaults.object(forKey: Keys.detectScreenLock) as? Bool ?? true
+        ambientTrack = AmbientTrack(rawValue: defaults.string(forKey: Keys.ambientTrack) ?? "") ?? .off
+        showRemainingMinutesInMenuBar = defaults.bool(forKey: Keys.showRemainingMinutesInMenuBar)
+        appLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.appLanguage) ?? "") ?? .system
     }
 
-    // MARK: - Public Methods
-
-    /// 是否已完成首次引导
     var hasCompletedOnboarding: Bool {
-        get {
-            UserDefaults.standard.bool(forKey: Keys.hasCompletedOnboarding)
-        }
-        set {
-            UserDefaults.standard.set(newValue, forKey: Keys.hasCompletedOnboarding)
+        get { defaults.bool(forKey: Keys.hasCompletedOnboarding) }
+        set { defaults.set(newValue, forKey: Keys.hasCompletedOnboarding) }
+    }
+
+    static func applyLanguagePreference(_ language: AppLanguage, defaults: UserDefaults = .standard) {
+        switch language {
+        case .system: defaults.removeObject(forKey: "AppleLanguages")
+        case .zhHans: defaults.set(["zh-Hans"], forKey: "AppleLanguages")
+        case .en: defaults.set(["en"], forKey: "AppleLanguages")
         }
     }
 
-    /// 重置为默认设置
     func resetToDefaults() {
         workDurationMinutes = Self.defaultWorkDuration
-        restDurationMinutes = Self.defaultRestDuration
+        restDurationSeconds = Self.defaultRestDurationSeconds
+        reminderMode = .gentle
         launchAtLogin = false
+        enableSmartDetection = true
+        detectIdle = true
+        detectVideoCall = true
+        detectFullscreen = true
+        detectScreenLock = true
+        ambientTrack = .off
+        showRemainingMinutesInMenuBar = false
+        appLanguage = .system
     }
 
-    /// 验证设置有效性
     func validateSettings() -> Bool {
-        let workValid = Self.workDurationRange.contains(workDurationMinutes)
-        let restValid = Self.restDurationRange.contains(restDurationMinutes)
-        return workValid && restValid
+        Self.workDurationRange.contains(workDurationMinutes) && Self.restDurationSecondsRange.contains(restDurationSeconds)
     }
 }

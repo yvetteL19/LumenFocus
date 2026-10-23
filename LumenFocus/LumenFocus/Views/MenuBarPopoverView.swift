@@ -1,242 +1,159 @@
-//
-//  MenuBarPopoverView.swift
-//  LumenFocus
-//
-//  Popover content shown on left-click of the menu-bar icon.
-//  Today summary + streak + current-cycle ring + action shortcuts.
-//
-
 import SwiftUI
 
+/// The next reminder and the user's controls are the primary menu-bar experience.
 struct MenuBarPopoverView: View {
-    @ObservedObject var appState = AppState.shared
-
-    /// 关闭 popover 的回调（由宿主 NSPopover 注入）
+    @ObservedObject private var appState = AppState.shared
     var onClose: () -> Void = {}
 
-    @State private var streak: Int = 0
-
     var body: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            headerSection
-            ringSection
+        VStack(alignment: .leading, spacing: 18) {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(verbatim: statusTitle)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                Text(verbatim: statusValue)
+                    .font(.system(size: 30, weight: .medium, design: .rounded))
+                    .monospacedDigit()
+                Text(verbatim: statusDetail)
+                    .font(.system(size: 12))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+            .accessibilityElement(children: .combine)
+
+            phaseControls
             Divider()
-            actionsSection
+            Text(verbatim: String(format: L("今日完成 %d 次休息 · 已计时 %@"), appState.todayRestCount, appState.formattedTodayWorkDuration))
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+            HStack {
+                Button("详细统计") { onClose(); StatisticsWindowManager.shared.show() }
+                Spacer()
+                Button("设置…") { onClose(); SettingsWindowManager.shared.showSettings() }
+                    .keyboardShortcut(",", modifiers: .command)
+            }
+            .buttonStyle(.borderless)
+            Button("退出 LumenFocus") { NSApplication.shared.terminate(nil) }
+                .keyboardShortcut("q", modifiers: .command)
+                .buttonStyle(.borderless)
+                .foregroundColor(.secondary)
         }
         .padding(20)
-        .frame(width: 300)
+        .frame(width: 340)
         .background(Color.LumenFocus.backgroundPrimary)
-        .onAppear { refresh() }
     }
 
-    // MARK: - Header
-
-    private var headerSection: some View {
-        HStack {
-            VStack(alignment: .leading, spacing: 2) {
-                Text("今日护眼")
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.LumenFocus.textSecondary)
-                Text(verbatim: String(format: L("%d 次 · %@"), appState.todayRestCount, appState.formattedTodayWorkDuration))
-                    .font(.system(size: 17, weight: .semibold))
-                    .foregroundColor(Color.LumenFocus.textPrimary)
-            }
-            Spacer()
-            if streak > 0 {
-                HStack(spacing: 4) {
-                    Image(systemName: "flame.fill")
-                        .font(.system(size: 12))
-                    Text(verbatim: String(format: L("%d 天"), streak))
-                        .font(.system(size: 13, weight: .semibold))
-                }
-                .foregroundColor(Color.LumenFocus.textPrimary)
-                .padding(.horizontal, 8)
-                .padding(.vertical, 4)
-                .background(Color.LumenFocus.backgroundSecondary)
-                .cornerRadius(12)
-            }
-        }
-    }
-
-    // MARK: - Ring / Progress
-
-    private var ringSection: some View {
-        HStack(spacing: 16) {
-            ZStack {
-                Circle()
-                    .stroke(Color.LumenFocus.gray400.opacity(0.3), lineWidth: 6)
-                Circle()
-                    .trim(from: 0, to: appState.progress)
-                    .stroke(Color.LumenFocus.ink, style: StrokeStyle(lineWidth: 6, lineCap: .round))
-                    .rotationEffect(.degrees(-90))
-                    .animation(.easeInOut, value: appState.progress)
-                Text(appState.formattedRemainingTime)
-                    .font(.system(size: 13, weight: .semibold, design: .rounded))
-                    .foregroundColor(Color.LumenFocus.textPrimary)
-            }
-            .frame(width: 64, height: 64)
-
-            VStack(alignment: .leading, spacing: 4) {
-                Text(verbatim: phaseLabel)
-                    .font(.system(size: 13, weight: .medium))
-                    .foregroundColor(Color.LumenFocus.textPrimary)
-                Text(verbatim: phaseDetail)
-                    .font(.system(size: 11))
-                    .foregroundColor(Color.LumenFocus.textSecondary)
-            }
-            Spacer()
-        }
-    }
-
-    private var phaseLabel: String {
+    private var statusTitle: String {
         switch appState.currentPhase {
-        case .working:        return L("工作中")
-        case .triggeringRest: return L("渐暗中…")
-        case .resting:        return L("休息中")
-        case .paused:         return L("已暂停")
-        case .autoSuspended:  return L("已自动暂停")
+        case .working: return L("下次休息")
+        case .reminderDue: return L("休息提醒")
+        case .triggeringRest: return L("准备离屏休息")
+        case .resting: return L("剩余休息时间")
+        case .paused: return L("提醒已暂停")
+        case .autoSuspended: return L("提醒暂缓")
         }
     }
 
-    private var phaseDetail: String {
+    private var statusValue: String {
         switch appState.currentPhase {
-        case .working:        return String(format: L("下次休息在 %d 分钟后"), appState.remainingSeconds / 60)
-        case .triggeringRest, .resting: return String(format: L("再过 %@ 回到工作"), appState.formattedRemainingTime)
-        case .paused:         return L("通过菜单恢复")
-        case .autoSuspended(let r): return autoSuspendDetail(r)
+        case .working: return appState.nextReminderDate.map(reminderClockText) ?? appState.formattedRemainingTime
+        case .reminderDue: return L("该休息一下了")
+        case .triggeringRest, .resting: return appState.formattedRemainingTime
+        case .paused(let until):
+            switch until {
+            case .duration(let date): return reminderClockText(date)
+            case .endOfDay: return L("至今日结束")
+            }
+        case .autoSuspended: return L("暂不打扰")
         }
     }
 
-    private func autoSuspendDetail(_ reason: AutoSuspendReason) -> String {
-        switch reason {
-        case .idle:        return L("检测到无操作")
-        case .videoCall:   return L("检测到视频通话")
-        case .fullscreen:  return L("检测到全屏应用")
-        case .focusMode:   return L("系统勿扰模式")
-        case .screenLocked:return L("屏幕已锁定")
-        }
-    }
-
-    // MARK: - Actions
-
-    private var actionsSection: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            phaseControls
-            Divider().padding(.vertical, 4)
-            PopoverActionRow(systemName: "chart.bar.xaxis", label: "详细统计") {
-                onClose()
-                StatisticsWindowManager.shared.show()
-            }
-            PopoverActionRow(systemName: "gearshape", label: "设置…", shortcut: "⌘,") {
-                onClose()
-                SettingsWindowManager.shared.showSettings()
-            }
-            PopoverActionRow(systemName: "xmark.circle", label: "退出 LumenFocus", shortcut: "⌘Q") {
-                NSApplication.shared.terminate(nil)
-            }
-        }
-    }
-
-    /// 随当前阶段变化的主控制项（全部在左键 popover 内，无需右键）
-    @ViewBuilder private var phaseControls: some View {
+    private var statusDetail: String {
         switch appState.currentPhase {
         case .working:
-            PopoverActionRow(systemName: "moon.circle", label: "现在休息") {
-                onClose()
-                TimerManager.shared.triggerManualRest()
+            if let detail = appState.environmentDetail, !detail.isEmpty { return detail }
+            return String(format: L("还有 %d 分钟"), max(1, Int(ceil(Double(appState.remainingSeconds) / 60))))
+        case .reminderDue: return L("准备好再开始，当前工作不会被遮挡。")
+        case .triggeringRest, .resting: return L("看向屏幕之外。你可以随时结束或延后。")
+        case .paused(let until):
+            switch until {
+            case .duration: return L("届时恢复提醒，工作时长继续累计。若已到点，会留出缓冲。")
+            case .endOfDay: return L("明天恢复提醒，也可随时手动恢复。")
             }
-            snoozeMenu
-        case .paused, .autoSuspended:
-            PopoverActionRow(systemName: "play.circle", label: "恢复护眼") {
-                onClose()
-                TimerManager.shared.resume()
-            }
-        case .triggeringRest, .resting:
-            PopoverActionRow(systemName: "stop.circle", label: "提前结束休息") {
-                onClose()
-                RestController.shared.cancelRest()
-            }
+        case .autoSuspended:
+            return appState.environmentDetail ?? L("环境变化后自动恢复，也可手动继续。")
         }
     }
 
-    /// 「稍后提醒」下拉，避免一长串选项铺满 popover
-    private var snoozeMenu: some View {
-        Menu {
-            Button(action: { snooze(5) })  { Text("5 分钟") }
-            Button(action: { snooze(15) }) { Text("15 分钟") }
-            Button(action: { snooze(30) }) { Text("30 分钟") }
-            Button(action: { snooze(60) }) { Text("1 小时") }
-            Button(action: { snoozeUntilEndOfDay() }) { Text("至今日结束") }
-        } label: {
-            HStack(spacing: 10) {
-                Image(systemName: "clock.badge")
-                    .font(.system(size: 13))
-                    .frame(width: 18)
-                Text("稍后提醒")
-                    .font(.system(size: 13))
-                Spacer()
-                Image(systemName: "chevron.down")
-                    .font(.system(size: 10))
-                    .foregroundColor(Color.LumenFocus.textTertiary)
+    @ViewBuilder private var phaseControls: some View {
+        switch appState.currentPhase {
+        case .working, .reminderDue:
+            Button {
+                onClose(); TimerManager.shared.triggerManualRest()
+            } label: {
+                Text(verbatim: L(appState.currentPhase == .reminderDue ? "开始休息" : "现在休息"))
             }
-            .foregroundColor(Color.LumenFocus.textPrimary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
+            .buttonStyle(.borderedProminent)
+            .tint(Color.LumenFocus.ink)
             .frame(maxWidth: .infinity)
-            .contentShape(Rectangle())
+            HStack {
+                Menu {
+                    ForEach([2, 5, 10], id: \.self) { minutes in
+                        Button {
+                            onClose(); TimerManager.shared.snoozeReminder(by: TimeInterval(minutes * 60))
+                        } label: {
+                            Text(verbatim: delayTitle(minutes))
+                        }
+                    }
+                    if appState.currentPhase == .reminderDue {
+                        Divider()
+                        Button("跳过本次") { onClose(); TimerManager.shared.skipReminder() }
+                    }
+                } label: {
+                    Text(verbatim: L(appState.currentPhase == .reminderDue ? "稍后再提醒" : "延后本次"))
+                }
+                pauseMenu
+            }
+        case .paused:
+            Button("恢复提醒") { onClose(); TimerManager.shared.resume() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.LumenFocus.ink)
+        case .autoSuspended:
+            Button("现在休息") { onClose(); TimerManager.shared.triggerManualRest() }
+                .buttonStyle(.bordered)
+            pauseMenu
+        case .triggeringRest, .resting:
+            Button("结束休息") { onClose(); RestController.shared.cancelRest() }
+                .buttonStyle(.borderedProminent)
+                .tint(Color.LumenFocus.ink)
+            Button("2 分钟后再提醒") { onClose(); RestController.shared.snooze(by: 120) }
+                .buttonStyle(.bordered)
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.hidden)
     }
 
-    private func snooze(_ minutes: Int) {
-        onClose()
-        TimerManager.shared.pause(duration: TimeInterval(minutes * 60))
+    private var pauseMenu: some View {
+        Menu("暂停提醒") {
+            ForEach([15, 60], id: \.self) { minutes in
+                Button {
+                    onClose(); TimerManager.shared.pause(duration: TimeInterval(minutes * 60))
+                } label: {
+                    Text(verbatim: String(format: L("暂停至 %@"), reminderClockText(Date().addingTimeInterval(TimeInterval(minutes * 60)))))
+                }
+            }
+            Button("至今日结束") { onClose(); TimerManager.shared.pause(duration: nil) }
+        }
     }
 
-    private func snoozeUntilEndOfDay() {
-        onClose()
-        TimerManager.shared.pause(duration: nil)
-    }
-
-    // MARK: - Refresh
-
-    private func refresh() {
-        streak = StatisticsManager.shared.getCurrentStreak()
+    private func delayTitle(_ minutes: Int) -> String {
+        let base = appState.currentPhase == .reminderDue ? Date() : (appState.nextReminderDate ?? Date())
+        let date = base.addingTimeInterval(TimeInterval(minutes * 60))
+        return String(format: L("延后 %d 分钟 · %@"), minutes, reminderClockText(date))
     }
 }
 
-private struct PopoverActionRow: View {
-    let systemName: String
-    let label: String
-    var shortcut: String? = nil
-    let action: () -> Void
-
-    @State private var hovering = false
-
-    var body: some View {
-        Button(action: action) {
-            HStack(spacing: 10) {
-                Image(systemName: systemName)
-                    .font(.system(size: 13))
-                    .frame(width: 18)
-                Text(verbatim: L(label))
-                    .font(.system(size: 13))
-                Spacer()
-                if let s = shortcut {
-                    Text(s)
-                        .font(.system(size: 11))
-                        .foregroundColor(Color.LumenFocus.textTertiary)
-                }
-            }
-            .foregroundColor(Color.LumenFocus.textPrimary)
-            .padding(.horizontal, 8)
-            .padding(.vertical, 7)
-            .frame(maxWidth: .infinity)
-            .background(hovering ? Color.LumenFocus.backgroundSecondary : Color.clear)
-            .cornerRadius(6)
-        }
-        .buttonStyle(.plain)
-        .onHover { hovering = $0 }
-    }
+func reminderClockText(_ date: Date) -> String {
+    let formatter = DateFormatter()
+    formatter.timeStyle = .short
+    formatter.dateStyle = .none
+    return formatter.string(from: date)
 }

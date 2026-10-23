@@ -50,19 +50,18 @@
 <body>
   <div class="logo"><span></span></div>
   <h1>Privacy Policy</h1>
-  <p class="muted">LumenFocus for macOS · Effective date: 19 June 2026</p>
+  <p class="muted">LumenFocus for macOS · Effective date: 22 October 2026</p>
 
   <p class="lead">LumenFocus (“the App”, “we”, “us”) is a menu-bar utility for macOS
   that reminds you to rest your eyes. We believe privacy is a feature. This policy
   describes how the App handles information. <strong>In short: the App does not
-  collect, transmit, or share any personal data, and there are no analytics,
+  transmit your activity records or diagnostic reports, and there are no analytics,
   tracking, accounts, or advertising.</strong></p>
 
-  <h2>1. Data Controller</h2>
-  <p>The App is provided by the LumenFocus developer (“the Developer”). Because the
-  App processes all information locally on your device and the Developer never
-  receives it, the Developer does not act as a data controller of any personal
-  data you generate while using the App. For privacy enquiries, contact
+  <h2>1. Developer and Contact</h2>
+  <p>The App is provided by the LumenFocus developer (“the Developer”). App activity
+  records and diagnostic reports are processed locally and are not automatically
+  sent to the Developer. For privacy enquiries, contact
   <a href="mailto:yveluo@outlook.com">yveluo@outlook.com</a>.</p>
 
   <h2>2. Information We Do Not Collect</h2>
@@ -70,31 +69,37 @@
   Specifically, the App does <strong>not</strong>:</p>
   <ul>
     <li>require an account, name, email address, or sign-in;</li>
-    <li>contain analytics, crash-reporting, advertising, or tracking SDKs;</li>
+    <li>contain third-party analytics, advertising, or tracking SDKs;</li>
     <li>access your contacts, photos, location, camera, or microphone;</li>
     <li>send your usage data, preferences, or statistics off your device.</li>
   </ul>
 
   <h2>3. Information Stored Locally on Your Device</h2>
-  <p>To function, the App stores the following on your Mac only (in macOS
-  <code>UserDefaults</code> and the App’s sandbox container). This data never
-  leaves your device and is not accessible to the Developer:</p>
+  <p>To function, the App stores the following on your Mac (in macOS
+  <code>UserDefaults</code> and the App’s sandbox container). The App does not
+  upload this data. If you choose to export or share a file, you control that copy:</p>
   <table>
     <tr><th>Data</th><th>Purpose</th><th>Retention</th></tr>
-    <tr><td>Preferences (work/rest durations, smart-pause toggles, ambient sound, launch-at-login, menu-bar options)</td><td>Operate the App as you configured it</td><td>Until changed or the App is removed</td></tr>
-    <tr><td>Eye-care statistics (daily rest counts and screen-time totals)</td><td>Show your local trends and heatmap</td><td>Rolling ~90 days, then automatically deleted</td></tr>
+    <tr><td>Preferences (work/rest durations, reminder mode, avoidance rules, launch-at-login, menu-bar options)</td><td>Operate the App as you configured it</td><td>Until changed or local App data is removed</td></tr>
+    <tr><td>Activity statistics (completed break counts, timed work duration, and completion identifiers used to prevent duplicate counts)</td><td>Show your local records and trends. These are timer records, not measurements of screen exposure, gaze, or health outcomes.</td><td>Today and the preceding 89 local calendar days. Older statistics are removed when the App launches or refreshes the day; cleanup cannot run while the App is closed.</td></tr>
+    <tr><td>Local diagnostic reports supplied by Apple's MetricKit (such as crash, hang, and CPU diagnostics)</td><td>Help investigate technical problems if you choose to share a report</td><td>Until the diagnostic files or local App data are manually removed. The 90-day statistics limit does not apply to diagnostics.</td></tr>
   </table>
   <p>If you use the optional CSV export, a file is written only to the location you
   choose; you control that file thereafter.</p>
+  <p>Changing the system clock backwards does not delete records dated after the
+  new current date; those records remain available for export but are excluded from
+  current-period summaries. If a saved statistics file cannot be read, an untouched
+  local recovery backup is retained until manually removed.</p>
 
   <h2>4. Device Permissions</h2>
   <ul>
-    <li><strong>Notifications</strong> (optional): used only to deliver a local
-        weekly eye-care summary generated on your device. No content is sent over
-        a network. You can disable this in macOS System Settings at any time.</li>
+    <li><strong>Notifications</strong>: weekly recap notifications are currently
+        disabled. Previously scheduled weekly reminders are cleared when this
+        version starts. The App does not request notification permission for a recap.</li>
     <li><strong>Activity awareness</strong>: to avoid interrupting you, the App
-        checks on-device signals such as whether a full-screen or video-call app is
-        active, or whether the Mac is idle or locked. These checks are performed in
+        checks on-device signals such as the foreground application, keyboard/mouse
+        inactivity, and lock/sleep state. Foreground-app rules do not confirm that a
+        call, screen share, or fullscreen session is taking place. These checks are performed in
         memory, in real time, and are neither recorded nor transmitted.</li>
   </ul>
 
@@ -103,12 +108,12 @@
   rent, or share information with anyone, because we do not have it.</p>
 
   <h2>6. Your Rights</h2>
-  <p>Regulations such as the EU/UK GDPR and the California Consumer Privacy Act
-  (CCPA) grant rights over personal data. Because the App holds your data solely on
-  your own device and the Developer has no access to it, you remain in full control:
-  you may view, export (CSV), or permanently erase all App data at any time by
-  adjusting settings or by uninstalling the App. We do not sell personal
-  information and never have.</p>
+  <p>You can view your activity history and export it as CSV in Statistics.
+  Removing the application bundle does not necessarily remove its preferences,
+  sandbox data, diagnostic reports, or exported files. To remove these records,
+  delete the corresponding local App data and any exported copies you no longer
+  need; contact us for instructions. The App does not automatically send these
+  files with a support request. We do not sell your activity records.</p>
 
   <h2>7. Data Security</h2>
   <p>Your data is protected by the standard security model of macOS, including app
@@ -116,8 +121,9 @@
   operating system up to date is the best way to safeguard locally stored data.</p>
 
   <h2>8. International Users</h2>
-  <p>Because no data is transmitted off your device, there is no international
-  transfer of personal data associated with the App.</p>
+  <p>The App does not upload activity records or diagnostic reports. If you choose
+  to send a support email or share an exported file, that communication is handled
+  by the service you select.</p>
 
   <h2>9. Children’s Privacy</h2>
   <p>The App does not knowingly collect data from anyone, including children under

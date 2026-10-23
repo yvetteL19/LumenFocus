@@ -10,6 +10,7 @@ import SwiftUI
 
 /// 呼吸节律视图（黑白极简，嵌入休息蒙层中段）
 struct BreathingCircleView: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     /// 呼吸阶段
     private enum Phase: Equatable {
         case inhale     // 4s
@@ -64,15 +65,15 @@ struct BreathingCircleView: View {
                 Circle()
                     .stroke(Color.white.opacity(0.9), lineWidth: 2)
                     .frame(width: 160, height: 160)
-                    .scaleEffect(scale)
-                    .animation(.easeInOut(duration: phase.duration), value: scale)
+                    .scaleEffect(reduceMotion ? 1 : scale)
+                    .animation(reduceMotion ? nil : .easeInOut(duration: phase.duration), value: scale)
             }
 
             Text(verbatim: L(phase.label))
                 .font(.system(size: 22, weight: .light))
                 .foregroundColor(.white.opacity(0.85))
                 .contentTransition(.opacity)
-                .animation(.easeInOut(duration: 0.4), value: phase)
+                .animation(reduceMotion ? nil : .easeInOut(duration: 0.4), value: phase)
         }
         .onAppear { startCycle() }
         .onDisappear { nextPhaseTask?.cancel() }
