@@ -24,9 +24,12 @@ final class StatisticsWindowManager {
         let controller = NSHostingController(rootView: StatisticsView())
         let w = NSWindow(contentViewController: controller)
         w.title = L("统计")
-        w.setContentSize(NSSize(width: 600, height: 560))
+        w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
+        w.contentMinSize = NSSize(width: 640, height: 500)
+        let available = NSScreen.main?.visibleFrame.size ?? NSSize(width: 800, height: 800)
+        w.setContentSize(NSSize(width: min(760, available.width - 40),
+                               height: min(700, available.height - 80)))
         w.center()
-        w.styleMask = [.titled, .closable, .miniaturizable]
         w.isReleasedWhenClosed = false
 
         window = w

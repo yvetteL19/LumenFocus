@@ -49,7 +49,7 @@ final class MenuBarController: NSObject {
         button.alphaValue = 1
         button.imagePosition = .imageLeading
         button.title = settings.showRemainingMinutesInMenuBar && appState.isWorking
-            ? " \(max(1, Int(ceil(Double(appState.remainingSeconds) / 60))))m" : ""
+            ? " \(ReminderPresentation.menuBarCountdown(seconds: appState.remainingSeconds))" : ""
         button.toolTip = tooltip
         button.setAccessibilityLabel(tooltip)
     }
@@ -58,7 +58,7 @@ final class MenuBarController: NSObject {
         switch appState.currentPhase {
         case .working:
             if let detail = appState.environmentDetail, !detail.isEmpty { return "LumenFocus · " + detail }
-            return appState.nextReminderDate.map { String(format: L("LumenFocus · 下次休息 %@"), reminderClockText($0)) } ?? "LumenFocus"
+            return appState.nextReminderDate.map { String(format: L("LumenFocus · 下次提醒 %@"), reminderClockText($0)) } ?? "LumenFocus"
         case .reminderDue: return L("LumenFocus · 休息提醒待处理")
         case .triggeringRest, .resting: return String(format: L("LumenFocus · 剩余休息 %@"), appState.formattedRemainingTime)
         case .paused(let until):
@@ -113,6 +113,8 @@ final class MenuBarController: NSObject {
             addPauseMenu(to: menu)
         case .paused:
             menu.addItem(item(L("恢复提醒"), action: #selector(resume)))
+            menu.addItem(item(L("休息并恢复提醒"), action: #selector(startRest)))
+            addPauseMenu(to: menu, title: L("调整暂停时间"))
         case .autoSuspended:
             menu.addItem(item(L("现在休息"), action: #selector(startRest)))
             addPauseMenu(to: menu)
@@ -131,11 +133,11 @@ final class MenuBarController: NSObject {
         statusItem?.menu = nil
     }
 
-    private func addPauseMenu(to menu: NSMenu) {
-        let pause = item(L("暂停提醒"), action: nil)
+    private func addPauseMenu(to menu: NSMenu, title: String = L("暂停提醒")) {
+        let pause = item(title, action: nil)
         let submenu = NSMenu()
         for minutes in [15, 60] {
-            let title = String(format: L("暂停至 %@"), reminderClockText(Date().addingTimeInterval(TimeInterval(minutes * 60))))
+            let title = ReminderPresentation.pauseOptionTitle(minutes: minutes)
             let entry = item(title, action: #selector(pauseFor(_:)))
             entry.tag = minutes
             submenu.addItem(entry)

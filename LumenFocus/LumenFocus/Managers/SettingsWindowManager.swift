@@ -1,36 +1,32 @@
-//
-//  SettingsWindowManager.swift
-//  LumenFocus
-//
-
 import Cocoa
 import SwiftUI
 
-class SettingsWindowManager {
+final class SettingsWindowManager {
     static let shared = SettingsWindowManager()
     private var window: NSWindow?
+    private let frameAutosaveName = "LumenFocusSettingsWindow"
 
     private init() {}
 
     func showSettings() {
-        if let w = window {
-            w.makeKeyAndOrderFront(nil)
+        if let window {
+            window.makeKeyAndOrderFront(nil)
             NSApp.activate(ignoringOtherApps: true)
             return
         }
 
-        let view = SettingsView()
-        let controller = NSHostingController(rootView: view)
+        let controller = NSHostingController(rootView: SettingsView())
+        let window = NSWindow(contentViewController: controller)
+        window.title = L("LumenFocus 设置")
+        window.styleMask = [.titled, .closable, .resizable]
+        window.contentMinSize = NSSize(width: 520, height: 480)
+        window.setContentSize(NSSize(width: 620, height: 600))
+        window.isReleasedWhenClosed = false
+        window.setFrameAutosaveName(frameAutosaveName)
+        if !window.setFrameUsingName(frameAutosaveName) { window.center() }
 
-        let w = NSWindow(contentViewController: controller)
-        w.title = L("LumenFocus 设置")
-        w.setContentSize(NSSize(width: 500, height: 600))
-        w.center()
-        w.styleMask = [.titled, .closable]
-        w.isReleasedWhenClosed = false
-
-        window = w
-        w.makeKeyAndOrderFront(nil)
+        self.window = window
+        window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 

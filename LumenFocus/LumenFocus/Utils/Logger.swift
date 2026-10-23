@@ -14,9 +14,12 @@ import os
     NSLocalizedString(key, comment: comment)
 }
 
-/// 本地化的时长格式化（小时/分钟），随系统语言自动切换：
-/// 中文 "1小时30分钟" / 英文 "1h 30m"。用于今日用眼、统计等所有展示。
+/// Shared work-time formatting. Preserve short recorded intervals as seconds;
+/// longer activity uses the system's abbreviated hours and minutes.
 func formatWorkDuration(_ seconds: Int) -> String {
+    if (0..<60).contains(seconds) {
+        return String(format: L("%d 秒"), seconds)
+    }
     let f = DateComponentsFormatter()
     f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
     f.unitsStyle = .abbreviated
