@@ -27,7 +27,7 @@
 | 内部测试包 | 校验后生成标注 `unsigned-not-for-distribution` 的 ZIP，内含报告、逐文件 SHA-256，另有 ZIP 校验和 | 不作为客户安装包或 TestFlight 构建 |
 | 分发门槛 | 实际 ad-hoc 副本被 Apple 信任链检查拒绝；fixture 也拒绝未签名、开发签名、Developer ID、错误 Team、调试与多余权限 | 真实 Apple Distribution / Mac App Distribution 身份尚未具备 |
 
-最终副本包含历法重启保护和后台刷新优化，重新执行了 20 秒休息、Esc 提前结束、统计/导出、设置与统计关闭后重开。它仍是隔离身份的本机验证构建，不是商店签名候选版。
+最终交互副本包含历法重启保护和后台刷新优化，重新执行了 20 秒休息、Esc 提前结束、统计/导出、设置与统计关闭后重开。收尾时还发现新建 hosting 的初始 frame/contentSize 可能为零，已在展示前按 fittingSize 设置；此尺寸补丁通过真实 NSHostingController 首次/重开回归以及最后一次完整测试和 Archive，未再次启动交互副本。实际显示过的 popover 仍需在可见菜单栏锚点下走查。上述副本均不是商店签名候选版。
 
 ## 运行开销
 
@@ -35,7 +35,7 @@
 
 随后 5 秒调用栈采样仍出现隐藏 `SettingsView`、`MenuBarPopoverView` 的布局，以及重复菜单图标/tooltip 更新，因此本轮收敛关闭窗口的视图生命周期和同一轮状态发布的重复刷新。
 
-最终 Release 沙盒副本重复打开设置/统计、休息后取消、导出、关闭并重开窗口，再全部关闭继续计时；按同样方法采样 25 次、120.27 秒。CPU 增量 **0.62 秒**，平均 **0.52% 单核 CPU**；RSS **42.91–50.39 MiB**。这两次样本显示后台 CPU 从约 3.38% 降至 0.52%，内存区间接近，没有据此声称内存占用显著下降。原始 JSON 保存在本次本机临时目录 `lumen-store-resource-sample.json` 与 `lumen-store-final-resource-sample.json`。
+优化后的 Release 沙盒副本重复打开设置/统计、休息后取消、导出、关闭并重开窗口，再全部关闭继续计时；按同样方法采样 25 次、120.27 秒。CPU 增量 **0.62 秒**，平均 **0.52% 单核 CPU**；RSS **42.91–50.39 MiB**。这两次样本显示后台 CPU 从约 3.38% 降至 0.52%，内存区间接近，没有据此声称内存占用显著下降。采样早于收尾的弹层初始尺寸补丁，未作为该补丁后或实际弹层反复使用后的性能证明。原始 JSON 保存在本次本机临时目录 `lumen-store-resource-sample.json` 与 `lumen-store-final-resource-sample.json`。
 
 这是单台设备的短时观察，不是 Energy Log、功耗测量、长期泄漏证明或性能承诺。构建/界面自动化及系统其他负载可能影响结果；正式候选版还需连续工作日和重复开关窗口的长期采样。
 

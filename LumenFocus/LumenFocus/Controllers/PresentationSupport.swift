@@ -33,7 +33,16 @@ final class PopoverContentController: NSObject, NSPopoverDelegate {
 
     func prepare(_ popover: NSPopover) {
         popover.delegate = self
-        if popover.contentViewController == nil { popover.contentViewController = makeContent() }
+        if popover.contentViewController == nil {
+            let controller = makeContent()
+            // A new NSHostingController can have a zero frame even when its
+            // SwiftUI content has a valid fitting size. NSPopover copies that
+            // frame when the controller is assigned, before its first layout.
+            let size = controller.view.fittingSize
+            controller.view.setFrameSize(size)
+            popover.contentViewController = controller
+            popover.contentSize = size
+        }
     }
 
     func popoverDidClose(_ notification: Notification) {

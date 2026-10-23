@@ -147,7 +147,13 @@ final class PresentationLifecycleTests: XCTestCase {
             var creations = 0
             let lifetime = PopoverContentController {
                 creations += 1
-                let controller = NSHostingController(rootView: Text("Isolated menu content"))
+                let controller = NSHostingController(rootView:
+                    VStack(alignment: .leading, spacing: 16) {
+                        Text("Next reminder")
+                        Text("Your next reminder and break controls are available here.")
+                            .fixedSize(horizontal: false, vertical: true)
+                    }.padding(20).frame(width: 350)
+                )
                 releasedController = controller
                 releasedView = controller.view
                 return controller
@@ -158,6 +164,9 @@ final class PresentationLifecycleTests: XCTestCase {
                 XCTAssertEqual(creations, 1)
                 XCTAssertTrue(popover.delegate === lifetime)
                 XCTAssertFalse(popover.isShown)
+                XCTAssertEqual(popover.contentSize.width, 350)
+                XCTAssertGreaterThan(popover.contentSize.height, 0,
+                                     "Lazy hosting must have a usable size before show is called")
                 // Drive the same native delegate callback without ordering a window.
                 lifetime.popoverDidClose(Notification(name: NSPopover.didCloseNotification, object: popover))
                 XCTAssertNil(popover.contentViewController)
@@ -168,6 +177,8 @@ final class PresentationLifecycleTests: XCTestCase {
                 lifetime.prepare(popover)
                 XCTAssertEqual(creations, 2)
                 XCTAssertNotNil(popover.contentViewController)
+                XCTAssertEqual(popover.contentSize.width, 350)
+                XCTAssertGreaterThan(popover.contentSize.height, 0)
                 lifetime.popoverDidClose(Notification(name: NSPopover.didCloseNotification, object: popover))
             }
             XCTAssertNil(releasedController)
