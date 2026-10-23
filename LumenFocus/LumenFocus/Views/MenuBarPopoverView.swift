@@ -3,157 +3,232 @@ import SwiftUI
 /// The next reminder and the user's controls are the primary menu-bar experience.
 struct MenuBarPopoverView: View {
     @ObservedObject private var appState = AppState.shared
+    @ObservedObject private var settings = AppSettings.shared
     var onClose: () -> Void = {}
 
-    var body: some View {
-        VStack(alignment: .leading, spacing: 18) {
-            VStack(alignment: .leading, spacing: 5) {
-                Text(verbatim: statusTitle)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                Text(verbatim: statusValue)
-                    .font(.system(size: 30, weight: .medium, design: .rounded))
-                    .monospacedDigit()
-                Text(verbatim: statusDetail)
-                    .font(.system(size: 12))
-                    .foregroundColor(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            .accessibilityElement(children: .combine)
+    private var presentation: ReminderPresentation {
+        ReminderPresentation(phase: appState.currentPhase, remainingSeconds: appState.remainingSeconds,
+                             nextReminderDate: appState.nextReminderDate, environmentDetail: appState.environmentDetail)
+    }
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            statusHeader
+            rhythmSummary
             phaseControls
             Divider()
-            Text(verbatim: String(format: L("今日完成 %d 次休息 · 已计时 %@"), appState.todayRestCount, appState.formattedTodayWorkDuration))
-                .font(.system(size: 12))
-                .foregroundColor(.secondary)
-            HStack {
-                Button("详细统计") { onClose(); StatisticsWindowManager.shared.show() }
-                Spacer()
-                Button("设置…") { onClose(); SettingsWindowManager.shared.showSettings() }
-                    .keyboardShortcut(",", modifiers: .command)
-            }
-            .buttonStyle(.borderless)
-            Button("退出 LumenFocus") { NSApplication.shared.terminate(nil) }
-                .keyboardShortcut("q", modifiers: .command)
-                .buttonStyle(.borderless)
-                .foregroundColor(.secondary)
+            footer
         }
         .padding(20)
-        .frame(width: 340)
+        .frame(width: 350)
         .background(Color.LumenFocus.backgroundPrimary)
     }
 
-    private var statusTitle: String {
-        switch appState.currentPhase {
-        case .working: return L("下次休息")
-        case .reminderDue: return L("休息提醒")
-        case .triggeringRest: return L("准备离屏休息")
-        case .resting: return L("剩余休息时间")
-        case .paused: return L("提醒已暂停")
-        case .autoSuspended: return L("提醒暂缓")
+    private var statusHeader: some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack {
+                Label {
+                    Text(verbatim: L(presentation.titleKey))
+                } icon: {
+                    Image(systemName: presentation.symbolName)
+                        .accessibilityHidden(true)
+                }
+                .font(.system(size: 12, weight: .medium))
+                .foregroundColor(Color.LumenFocus.textSecondary)
+                Spacer()
+                Text(verbatim: settings.reminderMode.displayName)
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(Color.LumenFocus.textSecondary)
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 4)
+                    .background(Color.LumenFocus.backgroundSecondary, in: Capsule())
+            }
+            Text(verbatim: presentation.value())
+                .font(.system(size: 30, weight: .medium, design: .rounded))
+                .monospacedDigit()
+                .fixedSize(horizontal: false, vertical: true)
+            Text(verbatim: presentation.detail())
+                .font(.system(size: 12))
+                .foregroundColor(Color.LumenFocus.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
+        .accessibilityElement(children: .combine)
+        .accessibilityIdentifier("reminder.status")
     }
 
-    private var statusValue: String {
-        switch appState.currentPhase {
-        case .working: return appState.nextReminderDate.map(reminderClockText) ?? appState.formattedRemainingTime
-        case .reminderDue: return L("该休息一下了")
-        case .triggeringRest, .resting: return appState.formattedRemainingTime
-        case .paused(let until):
-            switch until {
-            case .duration(let date): return reminderClockText(date)
-            case .endOfDay: return L("至今日结束")
-            }
-        case .autoSuspended: return L("暂不打扰")
-        }
-    }
-
-    private var statusDetail: String {
-        switch appState.currentPhase {
-        case .working:
-            if let detail = appState.environmentDetail, !detail.isEmpty { return detail }
-            return String(format: L("还有 %d 分钟"), max(1, Int(ceil(Double(appState.remainingSeconds) / 60))))
-        case .reminderDue: return L("准备好再开始，当前工作不会被遮挡。")
-        case .triggeringRest, .resting: return L("看向屏幕之外。你可以随时结束或延后。")
-        case .paused(let until):
-            switch until {
-            case .duration: return L("届时恢复提醒，工作时长继续累计。若已到点，会留出缓冲。")
-            case .endOfDay: return L("明天恢复提醒，也可随时手动恢复。")
-            }
-        case .autoSuspended:
-            return appState.environmentDetail ?? L("环境变化后自动恢复，也可手动继续。")
-        }
+    private var rhythmSummary: some View {
+        Text(verbatim: ReminderPresentation.rhythmSummary(workMinutes: settings.workDurationMinutes,
+                                                          restSeconds: settings.restDurationSeconds))
+            .font(.system(size: 12))
+            .foregroundColor(Color.LumenFocus.textSecondary)
+            .fixedSize(horizontal: false, vertical: true)
+            .accessibilityIdentifier("reminder.rhythm")
     }
 
     @ViewBuilder private var phaseControls: some View {
-        switch appState.currentPhase {
-        case .working, .reminderDue:
-            Button {
-                onClose(); TimerManager.shared.triggerManualRest()
-            } label: {
-                Text(verbatim: L(appState.currentPhase == .reminderDue ? "开始休息" : "现在休息"))
-            }
-            .buttonStyle(.borderedProminent)
-            .tint(Color.LumenFocus.ink)
-            .frame(maxWidth: .infinity)
-            HStack {
-                Menu {
-                    ForEach([2, 5, 10], id: \.self) { minutes in
-                        Button {
-                            onClose(); TimerManager.shared.snoozeReminder(by: TimeInterval(minutes * 60))
-                        } label: {
-                            Text(verbatim: delayTitle(minutes))
-                        }
-                    }
-                    if appState.currentPhase == .reminderDue {
-                        Divider()
-                        Button("跳过本次") { onClose(); TimerManager.shared.skipReminder() }
-                    }
-                } label: {
-                    Text(verbatim: L(appState.currentPhase == .reminderDue ? "稍后再提醒" : "延后本次"))
+        VStack(alignment: .leading, spacing: 10) {
+            primaryButton
+            switch appState.currentPhase {
+            case .working, .reminderDue:
+                HStack(spacing: 10) {
+                    delayMenu
+                    Spacer(minLength: 8)
+                    pauseMenu
                 }
-                pauseMenu
+            case .paused:
+                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                    Button {
+                        perform(.startRest)
+                    } label: {
+                        Text(verbatim: L("休息并恢复提醒"))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .buttonStyle(.borderless)
+                    .accessibilityHint(Text(verbatim: L("开始休息会结束暂停，之后按当前节奏提醒。")))
+                    .accessibilityIdentifier("reminder.breakWhilePaused")
+                    Spacer(minLength: 4)
+                    pauseMenu
+                }
+                Text(verbatim: L("开始休息会结束暂停，之后按当前节奏提醒。"))
+                    .font(.system(size: 11))
+                    .foregroundColor(Color.LumenFocus.textSecondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            case .autoSuspended:
+                HStack {
+                    Spacer()
+                    pauseMenu
+                }
+            case .triggeringRest, .resting:
+                Button {
+                    onClose()
+                    RestController.shared.snooze(by: 120)
+                } label: {
+                    Text(verbatim: L("2 分钟后再提醒"))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 3)
+                }
+                .buttonStyle(.borderless)
+                .accessibilityIdentifier("reminder.postponeRest")
             }
-        case .paused:
-            Button("恢复提醒") { onClose(); TimerManager.shared.resume() }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.LumenFocus.ink)
-        case .autoSuspended:
-            Button("现在休息") { onClose(); TimerManager.shared.triggerManualRest() }
-                .buttonStyle(.bordered)
-            pauseMenu
-        case .triggeringRest, .resting:
-            Button("结束休息") { onClose(); RestController.shared.cancelRest() }
-                .buttonStyle(.borderedProminent)
-                .tint(Color.LumenFocus.ink)
-            Button("2 分钟后再提醒") { onClose(); RestController.shared.snooze(by: 120) }
-                .buttonStyle(.bordered)
         }
+        .font(.system(size: 12))
+    }
+
+    private var primaryButton: some View {
+        Button {
+            perform(presentation.primaryAction)
+        } label: {
+            Text(verbatim: L(presentation.primaryTitleKey))
+                .font(.system(size: 13, weight: .semibold))
+                // Expanding the label expands the native button's actual hit area and fill.
+                .frame(maxWidth: .infinity, minHeight: 28)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderedProminent)
+        .tint(Color.LumenFocus.ink)
+        .controlSize(.large)
+        .keyboardShortcut(.defaultAction)
+        .accessibilityIdentifier("reminder.primary")
+    }
+
+    private var delayMenu: some View {
+        Menu {
+            ForEach([2, 5, 10], id: \.self) { minutes in
+                Button {
+                    onClose()
+                    TimerManager.shared.snoozeReminder(by: TimeInterval(minutes * 60))
+                } label: {
+                    let date = presentation.delayedReminderDate(minutes: minutes)
+                    Text(verbatim: String(format: L("延后 %d 分钟 · %@"), minutes, reminderClockText(date)))
+                }
+            }
+            if appState.currentPhase == .reminderDue {
+                Divider()
+                Button {
+                    onClose()
+                    TimerManager.shared.skipReminder()
+                } label: {
+                    Text(verbatim: L("跳过本次"))
+                }
+            }
+        } label: {
+            Text(verbatim: L(appState.currentPhase == .reminderDue ? "稍后再提醒" : "延后本次"))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityIdentifier("reminder.snooze")
     }
 
     private var pauseMenu: some View {
-        Menu("暂停提醒") {
+        Menu {
             ForEach([15, 60], id: \.self) { minutes in
                 Button {
-                    onClose(); TimerManager.shared.pause(duration: TimeInterval(minutes * 60))
+                    onClose()
+                    TimerManager.shared.pause(duration: TimeInterval(minutes * 60))
                 } label: {
-                    Text(verbatim: String(format: L("暂停至 %@"), reminderClockText(Date().addingTimeInterval(TimeInterval(minutes * 60)))))
+                    Text(verbatim: ReminderPresentation.pauseOptionTitle(minutes: minutes))
                 }
             }
-            Button("至今日结束") { onClose(); TimerManager.shared.pause(duration: nil) }
+            Button {
+                onClose()
+                TimerManager.shared.pause(duration: nil)
+            } label: {
+                Text(verbatim: L("至今日结束"))
+            }
+        } label: {
+            Text(verbatim: L(presentation.pauseMenuTitleKey))
+        }
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityIdentifier("reminder.pause")
+    }
+
+    private var footer: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(verbatim: String(format: L("今日完成 %d 次休息 · 已计时 %@"),
+                                  appState.todayRestCount, appState.formattedTodayWorkDuration))
+                .font(.system(size: 11))
+                .foregroundColor(Color.LumenFocus.textSecondary)
+                .fixedSize(horizontal: false, vertical: true)
+                .accessibilityIdentifier("reminder.today")
+            HStack(spacing: 14) {
+                Button {
+                    onClose()
+                    StatisticsWindowManager.shared.show()
+                } label: {
+                    Text(verbatim: L("详细统计"))
+                }
+                Button {
+                    onClose()
+                    SettingsWindowManager.shared.showSettings()
+                } label: {
+                    Text(verbatim: L("设置…"))
+                }
+                .keyboardShortcut(",", modifiers: .command)
+                Spacer(minLength: 8)
+                Button {
+                    NSApplication.shared.terminate(nil)
+                } label: {
+                    Text(verbatim: L("退出"))
+                }
+                .keyboardShortcut("q", modifiers: .command)
+                .accessibilityLabel(Text(verbatim: L("退出 LumenFocus")))
+            }
+            .font(.system(size: 12))
+            .buttonStyle(.borderless)
         }
     }
 
-    private func delayTitle(_ minutes: Int) -> String {
-        let base = appState.currentPhase == .reminderDue ? Date() : (appState.nextReminderDate ?? Date())
-        let date = base.addingTimeInterval(TimeInterval(minutes * 60))
-        return String(format: L("延后 %d 分钟 · %@"), minutes, reminderClockText(date))
+    private func perform(_ action: ReminderPresentation.Action) {
+        onClose()
+        switch action {
+        case .startRest: TimerManager.shared.triggerManualRest()
+        case .resumeReminders: TimerManager.shared.resume()
+        case .endRest: RestController.shared.cancelRest()
+        }
     }
 }
 
 func reminderClockText(_ date: Date) -> String {
-    let formatter = DateFormatter()
-    formatter.timeStyle = .short
-    formatter.dateStyle = .none
-    return formatter.string(from: date)
+    ReminderPresentation.clockText(date)
 }

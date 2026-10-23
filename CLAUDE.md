@@ -23,6 +23,8 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 - `CycleEngine`: pure Foundation state/deadline model with an injectable `CycleClock`. Continuous elapsed time drives transitions; calendar time labels reminders and attributes statistics. It owns all cycle semantics.
 - `TimerManager`: heartbeat and adapter for settings, environment, statistics and presentation. It never decrements a second counter or schedules delayed resume callbacks.
 - `AppState`: observable UI projection, with no independent storage or lifecycle decisions.
+- `ReminderPresentation`: pure display decisions for menu state, duration labels and visible action targets; native and SwiftUI menus share compact countdown/pause formatting.
+- `StatisticsPresentation`: one calendar range for summaries, chart, daily rows and CSV. Missing days stay absent from exports; existing zero records remain distinct. The statistics view observes repository changes, not every timer heartbeat.
 - `RestController`: translates engine progress into visual stages and forwards user actions. It does not own another timer.
 - `RestManager` / `RestOverlayWindow`: render the gentle reminder or one overlay per display, use local content bounds and retain exit controls throughout the rest. Freeze display selection before activating windows and restore the previous application's focus after dismissal.
 - `WorkspaceMonitor`: local foreground-app and idle rules plus physical lock/sleep signals. The app allowlist is not real call, screen-share or fullscreen detection. Settings must apply live and survive relaunch.
@@ -47,6 +49,7 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 
 - Use native black/white semantic colors from `Utils/Colors.swift`, clear typography and reachable controls. Respect Reduce Motion. Keep every overlay dismissible by visible buttons and Esc.
 - Localize all visible strings in `en.lproj/Localizable.strings` and `zh-Hans.lproj/Localizable.strings`. SwiftUI dynamic strings require explicit localization (`L` or `LocalizedStringKey`).
+- Settings use native grouped tabs and resizable windows. Let prominent button styles choose their label contrast in active and inactive windows; do not force white text. Explicitly left-align multiline Form footers.
 - Onboarding is optional and scrollable with fixed navigation. It cannot require notification permission or enabling launch at login.
 - Audio assets are absent: do not expose nonfunctional sound choices. Breathing/visual exercise scaffolds are not part of the default break flow.
 - Preferences and records remain local; no account or backend. `LumenFocus.xcdatamodeld` is unused scaffold; do not introduce Core Data.

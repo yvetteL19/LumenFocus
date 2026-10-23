@@ -12,6 +12,27 @@ final class TestCycleClock: CycleClock {
 }
 
 final class CycleEngineTests: XCTestCase {
+    func testManualBreakFromPauseResumesCadenceAfterCompletion() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock)
+        engine.start()
+        engine.pause(until: clock.now.addingTimeInterval(3600))
+        clock.advance(120)
+
+        engine.beginRest()
+        XCTAssertEqual(engine.snapshot.phase, .resting)
+        XCTAssertNil(engine.snapshot.pauseUntil)
+        clock.advance(23)
+        engine.tick()
+
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertEqual(engine.snapshot.remaining, 2400)
+        XCTAssertEqual(completedRests(engine.drainEvents()).count, 1)
+        clock.advance(2400)
+        engine.tick()
+        XCTAssertEqual(engine.snapshot.phase, .reminderDue, "Starting a break explicitly ends the old pause")
+    }
+
     func testImmediateRestUsesNewSettingsBeforePreferenceObserverDelivery() {
         let clock = TestCycleClock()
         let engine = CycleEngine(clock: clock, configuration: .init(workDuration: 2400, restDuration: 300))
