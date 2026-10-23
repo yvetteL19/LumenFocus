@@ -15,7 +15,7 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
   -parallel-testing-enabled NO CODE_SIGNING_ALLOWED=NO test
 ```
 
-- GitHub Actions builds/tests Debug and builds a universal unsigned Release. Signing, notarization and distribution are separate release gates.
+- GitHub Actions tests Debug, validates release-check failure fixtures and source metadata, and archives/packages a universal unsigned Release for internal testing. First release targets the Mac App Store; Apple Developer membership, distribution signing, TestFlight and App Review remain separate gates. See `docs/app-store-readiness.md` and `docs/release-build.md`.
 - Widget sources are not integrated into a target. Do not advertise a shipping Widget or add an App Group dependency to the main app.
 
 ## Architecture
@@ -26,9 +26,9 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 - `ReminderPresentation`: pure display decisions for menu state, duration labels and visible action targets; native and SwiftUI menus share compact countdown/pause formatting.
 - `StatisticsPresentation`: one calendar range for summaries, chart, daily rows and CSV. Missing days stay absent from exports; existing zero records remain distinct. The statistics view observes repository changes, not every timer heartbeat.
 - `RestController`: translates engine progress into visual stages and forwards user actions. It does not own another timer.
-- `RestManager` / `RestOverlayWindow`: render the gentle reminder or one overlay per display, use local content bounds and retain exit controls throughout the rest. Freeze display selection before activating windows and restore the previous application's focus after dismissal.
+- `RestManager` / `RestOverlayWindow`: render the gentle reminder or one overlay per display ID, use local content bounds and retain exit controls throughout the rest. `DisplayLayout` reconciles display changes without rebuilding unaffected windows or activating the app. Restore the previous application's focus only while the app and overlay still own it. Removed windows invalidate queued user actions.
 - `WorkspaceMonitor`: local foreground-app and idle rules plus physical lock/sleep signals. The app allowlist is not real call, screen-share or fullscreen detection. Settings must apply live and survive relaunch.
-- `StatisticsManager`: one in-memory repository backed by a versioned UserDefaults snapshot. Inject defaults, calendar and clock for tests. Split work at midnight; deduplicate completed rest UUIDs; merge overlapping legacy stores by per-field maximum. Flush periodically and at lifecycle boundaries.
+- `StatisticsManager`: one in-memory repository backed by a versioned UserDefaults snapshot. Inject defaults, calendar provider and clock for tests. Split work at observed time-zone changes and midnight; preserve already attributed date labels. The presentation consumes a single records/calendar/reference-date snapshot. Deduplicate completed rest UUIDs; merge overlapping legacy stores by per-field maximum. Flush periodically and at lifecycle boundaries.
 - `WeeklyRecapManager`: removes legacy repeating notifications. Weekly notifications remain disabled until there is explicit opt-in and fresh content.
 - `SharedDataAccess`: optional future Widget bridge, gated on the actual App Group signing entitlement.
 - `AppSettings`: seconds-based rest duration, legacy minute migration, bounded persisted values and isolated defaults injection.
@@ -44,12 +44,14 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 - Physical lock/sleep stops work measurement regardless of optional avoidance preferences. Returning after at least the configured rest duration resets the interval without adding a guided completion. Short absences retain the due time and allow recovery grace.
 - Only completed guided rest sessions increment the completed-rest count. Statistics are timer activity, not measured screen exposure or health scores.
 - Retain 90 calendar days of ordinary statistics. Preserve future-dated records on clock rollback and preserve corrupt payload bytes before recovery.
+- Statistics date keys use a Gregorian calendar with the current local time zone. System display-calendar changes must not reinterpret or delete persisted date labels; system time-zone changes affect newly observed activity only. Pending work splits at observed zone boundaries, and obsolete contexts are reclaimed after submission/retention.
 
 ## UI and resources
 
 - Use native black/white semantic colors from `Utils/Colors.swift`, clear typography and reachable controls. Respect Reduce Motion. Keep every overlay dismissible by visible buttons and Esc.
 - Localize all visible strings in `en.lproj/Localizable.strings` and `zh-Hans.lproj/Localizable.strings`. SwiftUI dynamic strings require explicit localization (`L` or `LocalizedStringKey`).
 - Settings use native grouped tabs and resizable windows. Let prominent button styles choose their label contrast in active and inactive windows; do not force white text. Explicitly left-align multiline Form footers.
+- Closing settings/statistics/popover releases their observing SwiftUI trees; reopening recreates them. Keep the settings frame autosave. Coalesce menu-bar model publications on the next main-queue turn and avoid reassigning unchanged native properties; do not reduce engine heartbeat or rest countdown accuracy for UI performance.
 - Onboarding is optional and scrollable with fixed navigation. It cannot require notification permission or enabling launch at login.
 - Audio assets are absent: do not expose nonfunctional sound choices. Breathing/visual exercise scaffolds are not part of the default break flow.
 - Preferences and records remain local; no account or backend. `LumenFocus.xcdatamodeld` is unused scaffold; do not introduce Core Data.
@@ -57,6 +59,8 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 
 ## Testing and release boundaries
 
-Use fake clocks and unique UserDefaults suites. Never test by resetting production singleton preferences. Add regression tests for observable behavior, especially transitions, interruptions, migrations and attribution across date boundaries. Run the shared scheme and universal Release build before proposing release changes.
+Use fake clocks and unique UserDefaults suites. Never test by resetting production singleton preferences. Add regression tests for observable behavior, especially transitions, interruptions, migrations and attribution across date boundaries. Native presentation tests create unordered windows with injected actions and Reduce Motion; they do not change the user's desktop. Run the shared scheme, release-script fixtures and universal Release Archive before proposing release changes.
+
+Keep the App Store entitlement baseline narrow: App Sandbox and user-selected file read/write only. PrivacyInfo.xcprivacy declares no tracking/collected data and UserDefaults CA92.1. The release validator checks these against the source and built app. Changes to capabilities or data handling need an accompanying manifest, policy and validator review; do not add unused capabilities.
 
 Physical multi-display layouts/hotplug, Spaces/fullscreen, lock/sleep, VoiceOver, minimum macOS and long-running energy use still need explicit device validation. A passing build or unit suite must not be described as evidence for those checks.

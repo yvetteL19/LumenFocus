@@ -7,6 +7,14 @@ final class MenuBarController: NSObject {
     private var statusItem: NSStatusItem?
     private var popover: NSPopover?
     private var cancellables = Set<AnyCancellable>()
+    private let iconRefresh = MainQueueUpdateCoalescer()
+    private lazy var popoverContent = PopoverContentController { [weak self] in
+        NSHostingController(rootView: MenuBarPopoverView(onClose: { [weak self] in self?.popover?.performClose(nil) }))
+    }
+    private enum IconState: Equatable {
+        case paused, due, progress(Double)
+    }
+    private var renderedIcon: IconState?
     private let appState = AppState.shared
     private let settings = AppSettings.shared
 
@@ -16,17 +24,18 @@ final class MenuBarController: NSObject {
             button.target = self
             button.action = #selector(statusItemClicked(_:))
             button.sendAction(on: [.leftMouseUp, .rightMouseUp])
+            button.alphaValue = 1
+            button.imagePosition = .imageLeading
         }
         let popover = NSPopover()
         popover.behavior = .transient
         popover.animates = !NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
-        popover.contentViewController = NSHostingController(rootView: MenuBarPopoverView(onClose: { [weak self] in self?.popover?.performClose(nil) }))
         self.popover = popover
-        appState.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in
-            DispatchQueue.main.async { self?.updateIcon() }
+        appState.objectWillChange.sink { [weak self] _ in
+            self?.scheduleIconRefresh()
         }.store(in: &cancellables)
-        settings.objectWillChange.receive(on: DispatchQueue.main).sink { [weak self] _ in
-            DispatchQueue.main.async { self?.updateIcon() }
+        settings.objectWillChange.sink { [weak self] _ in
+            self?.scheduleIconRefresh()
         }.store(in: &cancellables)
         NotificationCenter.default.publisher(for: .lumenFocusOnboardingCompleted)
             .receive(on: DispatchQueue.main)
@@ -35,23 +44,38 @@ final class MenuBarController: NSObject {
         updateIcon()
     }
 
+    private func scheduleIconRefresh() {
+        // Both models publish on the main thread, before their property is set.
+        // Rendering once on the following turn observes the complete projection.
+        iconRefresh.schedule { [weak self] in self?.updateIcon() }
+    }
+
     private func updateIcon() {
         guard let button = statusItem?.button else { return }
+        let icon: IconState
         switch appState.currentPhase {
-        case .paused, .autoSuspended:
-            button.image = IconManager.shared.pausedIcon()
-        case .reminderDue:
-            button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: L("休息提醒"))
-            button.image?.isTemplate = true
-        default:
-            button.image = IconManager.shared.progressIcon(appState.progress)
+        case .paused, .autoSuspended: icon = .paused
+        case .reminderDue: icon = .due
+        default: icon = .progress(appState.progress)
         }
-        button.alphaValue = 1
-        button.imagePosition = .imageLeading
-        button.title = settings.showRemainingMinutesInMenuBar && appState.isWorking
+        if renderedIcon != icon {
+            switch icon {
+            case .paused: button.image = IconManager.shared.pausedIcon()
+            case .due:
+                button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: L("休息提醒"))
+                button.image?.isTemplate = true
+            case .progress(let progress): button.image = IconManager.shared.progressIcon(progress)
+            }
+            renderedIcon = icon
+        }
+        let title = settings.showRemainingMinutesInMenuBar && appState.isWorking
             ? " \(ReminderPresentation.menuBarCountdown(seconds: appState.remainingSeconds))" : ""
-        button.toolTip = tooltip
-        button.setAccessibilityLabel(tooltip)
+        if button.title != title { button.title = title }
+        let description = tooltip
+        if button.toolTip != description {
+            button.toolTip = description
+            button.setAccessibilityLabel(description)
+        }
     }
 
     private var tooltip: String {
@@ -78,8 +102,9 @@ final class MenuBarController: NSObject {
     }
 
     private func showPopover() {
-        guard let button = statusItem?.button else { return }
-        popover?.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        guard let button = statusItem?.button, let popover else { return }
+        popoverContent.prepare(popover)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         NSApp.activate(ignoringOtherApps: true)
     }
 

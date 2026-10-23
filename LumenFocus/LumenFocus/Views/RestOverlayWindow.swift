@@ -2,15 +2,32 @@ import Cocoa
 
 /// Full-screen presentation only. All lifecycle decisions belong to RestController.
 final class RestOverlayWindow: NSWindow {
-    let isPrimaryDisplay: Bool
+    var isPrimaryDisplay: Bool {
+        didSet { headingLabel?.font = .systemFont(ofSize: isPrimaryDisplay ? 30 : 25, weight: .medium) }
+    }
     private var dimView: NSView!
+    private var headingLabel: NSTextField!
     private var countdownLabel: NSTextField!
-    private var hasHandledEscape = false
+    private var hasSubmittedAction = false
+    private var isCleanedUp = false
+    private let reduceMotion: () -> Bool
+    private let onEnd: () -> Void
+    private let onPostpone: () -> Void
 
-    init(screen: NSScreen, isPrimaryDisplay: Bool = true) {
+    /// Injectable point geometry and actions let tests inspect an unordered window
+    /// without adding displays, changing accessibility preferences or starting a timer.
+    init(screenFrame: CGRect, isPrimaryDisplay: Bool = true,
+         reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
+         onEnd: @escaping () -> Void = { RestController.shared.cancelRest() },
+         onPostpone: @escaping () -> Void = { RestController.shared.snooze(by: 120) }) {
         self.isPrimaryDisplay = isPrimaryDisplay
-        super.init(contentRect: screen.frame, styleMask: [.borderless], backing: .buffered, defer: false)
-        setFrame(screen.frame, display: true)
+        self.reduceMotion = reduceMotion
+        self.onEnd = onEnd
+        self.onPostpone = onPostpone
+        super.init(contentRect: screenFrame, styleMask: [.borderless], backing: .buffered, defer: false)
+        setFrame(screenFrame, display: true)
+        title = L("离屏休息")
+        setAccessibilityLabel(title)
         level = .screenSaver + 1
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary]
         backgroundColor = .clear
@@ -24,32 +41,41 @@ final class RestOverlayWindow: NSWindow {
     private func setupContent() {
         guard let content = contentView else { return }
         // Screen frames are global; child views must use the window's local bounds.
-        dimView = NSView(frame: content.bounds)
+        dimView = NSView(frame: DisplayLayout.contentBounds(for: content.bounds))
+        dimView.identifier = NSUserInterfaceItemIdentifier("rest.dim")
         dimView.autoresizingMask = [.width, .height]
         dimView.wantsLayer = true
         dimView.layer?.backgroundColor = NSColor.black.cgColor
         dimView.alphaValue = 0
         content.addSubview(dimView)
 
-        let heading = label(L("看向屏幕之外"), size: isPrimaryDisplay ? 30 : 25, weight: .medium)
+        headingLabel = label(L("看向屏幕之外"), size: isPrimaryDisplay ? 30 : 25, weight: .medium)
         let instruction = label(L("找一个远处的物体，轻松眨眼。"), size: 17)
         instruction.maximumNumberOfLines = 0
         instruction.lineBreakMode = .byWordWrapping
         countdownLabel = label("", size: 42, weight: .medium)
+        countdownLabel.identifier = NSUserInterfaceItemIdentifier("rest.countdown")
         countdownLabel.font = .monospacedDigitSystemFont(ofSize: 42, weight: .medium)
 
         let end = NSButton(title: L("结束休息"), target: self, action: #selector(endRest))
         end.bezelStyle = .rounded
         end.keyEquivalent = "\u{1b}"
+        end.keyEquivalentModifierMask = []
+        end.identifier = NSUserInterfaceItemIdentifier("rest.end")
+        end.setAccessibilityIdentifier("rest.end")
         end.setAccessibilityHelp(L("按Escape键提前结束休息"))
         let postpone = NSButton(title: L("2 分钟后再提醒"), target: self, action: #selector(postponeRest))
         postpone.bezelStyle = .rounded
+        postpone.identifier = NSUserInterfaceItemIdentifier("rest.postpone")
+        postpone.setAccessibilityIdentifier("rest.postpone")
+        end.nextKeyView = postpone
+        postpone.nextKeyView = end
         let controls = NSStackView(views: [end, postpone])
         controls.orientation = .horizontal
         controls.spacing = 12
         controls.distribution = .fillEqually
         let hint = label(L("随时可结束 · Esc"), size: 13)
-        let stack = NSStackView(views: [heading, instruction, countdownLabel, controls, hint])
+        let stack = NSStackView(views: [headingLabel, instruction, countdownLabel, controls, hint])
         stack.orientation = .vertical
         stack.alignment = .centerX
         stack.spacing = 22
@@ -90,11 +116,11 @@ final class RestOverlayWindow: NSWindow {
         animateDim(to: 0, duration: duration, completion: completion)
     }
 
-    func showDimmed() { dimView.alphaValue = 0.85 }
+    func showDimmed() { dimView?.alphaValue = 0.85 }
 
     private func animateDim(to alpha: CGFloat, duration: TimeInterval, completion: (() -> Void)?) {
         guard let dimView else { completion?(); return }
-        if NSWorkspace.shared.accessibilityDisplayShouldReduceMotion {
+        if reduceMotion() {
             dimView.alphaValue = alpha
             completion?()
             return
@@ -107,13 +133,22 @@ final class RestOverlayWindow: NSWindow {
     }
 
     @objc private func endRest() {
-        guard !hasHandledEscape else { return }
-        hasHandledEscape = true
-        DispatchQueue.main.async { RestController.shared.cancelRest() }
+        submit(onEnd)
     }
 
     @objc private func postponeRest() {
-        DispatchQueue.main.async { RestController.shared.snooze(by: 120) }
+        submit(onPostpone)
+    }
+
+    private func submit(_ action: @escaping () -> Void) {
+        guard !hasSubmittedAction, !isCleanedUp else { return }
+        hasSubmittedAction = true
+        // Closing an overlay is deferred beyond its button/key event. A screen
+        // removal or interrupted session invalidates callbacks from that window.
+        DispatchQueue.main.async { [weak self] in
+            guard let self, !self.isCleanedUp else { return }
+            action()
+        }
     }
 
     override func keyDown(with event: NSEvent) {
@@ -125,9 +160,11 @@ final class RestOverlayWindow: NSWindow {
 
     func stopAllAnimations() { dimView?.layer?.removeAllAnimations() }
     func cleanup() {
+        isCleanedUp = true
         stopAllAnimations()
         contentView?.subviews.forEach { $0.removeFromSuperview() }
         dimView = nil
+        headingLabel = nil
         countdownLabel = nil
     }
 }

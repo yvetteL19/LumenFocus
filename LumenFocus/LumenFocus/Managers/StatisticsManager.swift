@@ -19,6 +19,35 @@ final class StatisticsManager {
     static let shared = StatisticsManager()
     static let didChangeNotification = Notification.Name("LumenFocus.statisticsDidChange")
 
+    struct Snapshot {
+        let records: [DailyStatistics]
+        let calendar: Calendar
+        let referenceDate: Date
+    }
+
+    private struct CalendarContext {
+        let effectiveFrom: Date
+        let calendar: Calendar
+        let formatter: DateFormatter
+
+        init(effectiveFrom: Date, calendar: Calendar) {
+            self.effectiveFrom = effectiveFrom
+            // Unversioned yyyy-MM-dd keys use the existing Gregorian convention.
+            // Never reinterpret them using a user's display-calendar preference,
+            // including when a new repository instance is created after relaunch.
+            var storageCalendar = Calendar(identifier: .gregorian)
+            storageCalendar.timeZone = calendar.timeZone
+            self.calendar = storageCalendar
+            let formatter = DateFormatter()
+            formatter.locale = Locale(identifier: "en_US_POSIX")
+            formatter.calendar = storageCalendar
+            formatter.timeZone = storageCalendar.timeZone
+            formatter.dateFormat = "yyyy-MM-dd"
+            formatter.isLenient = false
+            self.formatter = formatter
+        }
+    }
+
     private struct Store: Codable {
         var records: [DailyStatistics]
         var fractionalWorkSeconds: [String: Double]
@@ -33,10 +62,13 @@ final class StatisticsManager {
     }
 
     private let defaults: UserDefaults
-    private let calendar: Calendar
+    private let calendarProvider: () -> Calendar
+    private var calendarContexts: [CalendarContext]
+    private var lastCalendarObservationDate: Date
+    private var calendar: Calendar { calendarContexts[calendarContexts.count - 1].calendar }
+    private var formatter: DateFormatter { calendarContexts[calendarContexts.count - 1].formatter }
     private let now: () -> Date
     private let retentionDays: Int
-    private let formatter: DateFormatter
     private var records: [String: DailyStatistics] = [:]
     private var fractionalWorkSeconds: [String: Double] = [:]
     private var completedRestIDs: [String: String] = [:]
@@ -44,23 +76,31 @@ final class StatisticsManager {
     private var lastFlushAt: Date
     private var isDirty = false
     private var pendingLegacyKeys: [String] = []
+    private var timeZoneObserver: NSObjectProtocol?
 
-    /// Inject a separate defaults suite and clock in tests; initialization never touches the shared singleton.
-    init(defaults: UserDefaults = .standard, calendar: Calendar = .current,
+    /// Diagnostics for ensuring processed intervals do not retain an ever-growing timeline.
+    var retainedCalendarContextCount: Int { calendarContexts.count }
+
+    /// Calendar inputs supply time zones only; stored date keys always use Gregorian dates.
+    /// An explicit calendar provides a fixed zone, while calendarProvider can change it in tests.
+    /// Inject a separate defaults suite and clock; initialization never touches the shared singleton.
+    init(defaults: UserDefaults = .standard, calendar: Calendar? = nil,
+         calendarProvider: (() -> Calendar)? = nil,
          now: @escaping () -> Date = Date.init, retentionDays: Int = 90) {
         self.defaults = defaults
-        self.calendar = calendar
+        // An explicit calendar's time zone remains fixed for existing callers and tests.
+        // Production resolves the system time zone whenever the repository is used.
+        // Keys have no calendar-identifier metadata: preserve the Gregorian convention
+        // without guessing at or rewriting historical years.
+        let provider = calendarProvider ?? { calendar ?? Calendar.current }
+        self.calendarProvider = provider
         self.now = now
         self.retentionDays = max(1, retentionDays)
-        let formatter = DateFormatter()
-        formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
-        formatter.dateFormat = "yyyy-MM-dd"
-        formatter.isLenient = false
-        self.formatter = formatter
         let initialDate = now()
-        self.currentDayKey = formatter.string(from: initialDate)
+        let initialContext = CalendarContext(effectiveFrom: .distantPast, calendar: provider())
+        self.calendarContexts = [initialContext]
+        self.lastCalendarObservationDate = initialDate
+        self.currentDayKey = initialContext.formatter.string(from: initialDate)
         self.lastFlushAt = initialDate
 
         let savedData = defaults.data(forKey: Keys.store)
@@ -83,23 +123,50 @@ final class StatisticsManager {
         }
         pruneHistory(at: initialDate)
         flush()
+        timeZoneObserver = NotificationCenter.default.addObserver(forName: .NSSystemTimeZoneDidChange,
+                                                                  object: nil, queue: .main) { [weak self] _ in
+            self?.refreshToday()
+        }
     }
 
-    /// Split elapsed work at local midnight, retaining subsecond remainders per day.
+    deinit {
+        if let timeZoneObserver { NotificationCenter.default.removeObserver(timeZoneObserver) }
+    }
+
+    /// Split at observed time-zone changes, then at each context's local midnight.
+    /// Already recorded date labels are never moved to a different calendar day.
     func recordWork(from start: Date, to end: Date) {
         guard start.timeIntervalSinceReferenceDate.isFinite,
               end.timeIntervalSinceReferenceDate.isFinite, end > start else { return }
         let referenceDate = now()
         refreshDay(at: referenceDate)
-        guard let cutoff = retentionCutoff(at: referenceDate),
-              let tomorrow = calendar.date(byAdding: .day, value: 1, to: calendar.startOfDay(for: referenceDate)) else { return }
+        for (index, context) in calendarContexts.enumerated() {
+            let nextBoundary = calendarContexts.indices.contains(index + 1)
+                ? calendarContexts[index + 1].effectiveFrom : end
+            let segmentStart = max(start, context.effectiveFrom)
+            let segmentEnd = min(end, nextBoundary)
+            guard segmentEnd > segmentStart else { continue }
+            recordWork(from: segmentStart, to: segmentEnd, context: context, relativeTo: referenceDate)
+        }
+        discardCalendarContexts(through: end)
+        if referenceDate.timeIntervalSince(lastFlushAt) >= 60 || referenceDate < lastFlushAt {
+            flush()
+        }
+    }
+
+    private func recordWork(from start: Date, to end: Date, context: CalendarContext, relativeTo referenceDate: Date) {
+        let calendar = context.calendar
+        guard let cutoff = calendar.date(byAdding: .day, value: -(retentionDays - 1),
+                                         to: calendar.startOfDay(for: referenceDate)),
+              let tomorrow = calendar.date(byAdding: .day, value: 1,
+                                           to: calendar.startOfDay(for: referenceDate)) else { return }
         var cursor = max(start, cutoff)
         let boundedEnd = min(end, tomorrow)
         while cursor < boundedEnd {
             let dayStart = calendar.startOfDay(for: cursor)
             guard let nextDay = calendar.date(byAdding: .day, value: 1, to: dayStart), nextDay > cursor else { break }
             let segmentEnd = min(boundedEnd, nextDay)
-            let key = formatter.string(from: cursor)
+            let key = context.formatter.string(from: cursor)
             let accumulated = (fractionalWorkSeconds[key] ?? 0) + segmentEnd.timeIntervalSince(cursor)
             let wholeSeconds = Int(accumulated.rounded(.down))
             fractionalWorkSeconds[key] = accumulated - Double(wholeSeconds)
@@ -109,9 +176,6 @@ final class StatisticsManager {
             isDirty = true
             cursor = segmentEnd
         }
-        if referenceDate.timeIntervalSince(lastFlushAt) >= 60 || referenceDate < lastFlushAt {
-            flush()
-        }
     }
 
     /// A completion is counted once per UUID, including after relaunch, within retained history.
@@ -119,7 +183,8 @@ final class StatisticsManager {
         let referenceDate = now()
         refreshDay(at: referenceDate)
         guard isRetained(date, relativeTo: referenceDate), completedRestIDs[id.uuidString] == nil else { return }
-        let key = formatter.string(from: date)
+        let context = calendarContexts.last { $0.effectiveFrom <= date } ?? calendarContexts[0]
+        let key = context.formatter.string(from: date)
         var record = records[key] ?? DailyStatistics(date: key)
         record.restCount += 1
         records[key] = record
@@ -132,11 +197,18 @@ final class StatisticsManager {
     /// Persist a single snapshot only when changed. Call at pause, sleep and app termination.
     func flush() {
         let referenceDate = now()
+        refreshDay(at: referenceDate)
         pruneHistory(at: referenceDate)
-        guard isDirty else { return }
+        if persistSnapshot(at: referenceDate) {
+            NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+        }
+    }
+
+    private func persistSnapshot(at referenceDate: Date) -> Bool {
+        guard isDirty else { return false }
         let store = Store(records: sortedRecords(), fractionalWorkSeconds: fractionalWorkSeconds,
                           completedRestIDs: completedRestIDs)
-        guard let data = try? JSONEncoder().encode(store) else { return }
+        guard let data = try? JSONEncoder().encode(store) else { return false }
         defaults.set(data, forKey: Keys.store)
         defaults.set(2, forKey: Keys.migrationVersion)
         // Remove old stores only after the new complete snapshot has been written.
@@ -144,7 +216,7 @@ final class StatisticsManager {
         pendingLegacyKeys.removeAll()
         lastFlushAt = referenceDate
         isDirty = false
-        NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
+        return true
     }
 
     /// Refresh the date boundary and enforce retention without manufacturing a persisted zero day.
@@ -185,6 +257,13 @@ final class StatisticsManager {
         return sortedRecords()
     }
 
+    /// Read records and their current calendar boundary atomically for presentation.
+    func getSnapshot() -> Snapshot {
+        let referenceDate = now()
+        refreshDay(at: referenceDate)
+        return Snapshot(records: sortedRecords(), calendar: calendar, referenceDate: referenceDate)
+    }
+
     /// Compatibility queries: a day with any completed break, not a medical target.
     var dailyStreakThreshold: Int { 1 }
 
@@ -223,16 +302,29 @@ final class StatisticsManager {
     }
 
     func cleanupOldData() {
-        pruneHistory(at: now())
         flush()
     }
 
     private func refreshDay(at date: Date) {
+        // A wall-clock rollback starts a new attribution timeline. Persisted
+        // historical labels, including future-dated labels, stay untouched.
+        if date < lastCalendarObservationDate {
+            calendarContexts = [CalendarContext(effectiveFrom: .distantPast, calendar: calendar)]
+        }
+        lastCalendarObservationDate = date
+        var nextCalendar = calendar
+        nextCalendar.timeZone = calendarProvider().timeZone
+        let calendarChanged = nextCalendar != calendar
+        if calendarChanged {
+            // The notification/first observation is the explicit switch boundary.
+            // Keep earlier contexts for a pending work interval spanning this time.
+            calendarContexts.append(CalendarContext(effectiveFrom: date, calendar: nextCalendar))
+        }
         let key = formatter.string(from: date)
-        guard key != currentDayKey else { return }
+        guard calendarChanged || key != currentDayKey else { return }
         currentDayKey = key
         pruneHistory(at: date)
-        flush()
+        _ = persistSnapshot(at: date)
         NotificationCenter.default.post(name: Self.didChangeNotification, object: self)
     }
 
@@ -248,6 +340,13 @@ final class StatisticsManager {
     }
 
     private func pruneHistory(at date: Date) {
+        // No accepted work interval can use a context before all calendars' retention
+        // cutoffs. This also cleans up old transitions during long periods without work.
+        let earliestCutoff = calendarContexts.compactMap { context in
+            context.calendar.date(byAdding: .day, value: -(retentionDays - 1),
+                                  to: context.calendar.startOfDay(for: date))
+        }.min()
+        if let earliestCutoff { discardCalendarContexts(through: earliestCutoff) }
         guard let cutoff = retentionCutoff(at: date) else { return }
         let kept = records.filter { entry in
             guard let recordedDate = parseDate(entry.key) else { return false }
@@ -262,6 +361,15 @@ final class StatisticsManager {
         records = kept
         completedRestIDs = keptIDs
         fractionalWorkSeconds = fractionalWorkSeconds.filter { records[$0.key] != nil }
+    }
+
+    private func discardCalendarContexts(through boundary: Date) {
+        guard let index = calendarContexts.lastIndex(where: { $0.effectiveFrom <= boundary }), index > 0 else { return }
+        calendarContexts.removeFirst(index)
+        // Work arrives chronologically from CycleEngine. Keep the context in force
+        // at the watermark plus any later changes needed by pending intervals.
+        let earliest = calendarContexts[0]
+        calendarContexts[0] = CalendarContext(effectiveFrom: .distantPast, calendar: earliest.calendar)
     }
 
     private func sortedRecords() -> [DailyStatistics] { records.values.sorted { $0.date < $1.date } }

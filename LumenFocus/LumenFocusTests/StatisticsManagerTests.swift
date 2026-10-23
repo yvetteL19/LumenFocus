@@ -7,6 +7,19 @@ final class StatisticsManagerTests: XCTestCase {
         init(_ date: Date) { self.date = date }
     }
 
+    private final class CalendarSource {
+        var calendar: Calendar
+
+        init(_ timeZone: String) {
+            calendar = Calendar(identifier: .gregorian)
+            calendar.timeZone = TimeZone(identifier: timeZone)!
+        }
+
+        func change(to timeZone: String) {
+            calendar.timeZone = TimeZone(identifier: timeZone)!
+        }
+    }
+
     private var suiteName: String!
     private var defaults: UserDefaults!
     private var calendar: Calendar!
@@ -32,6 +45,12 @@ final class StatisticsManagerTests: XCTestCase {
     private func repository(retentionDays: Int = 90) -> StatisticsManager {
         let testClock = clock!
         return StatisticsManager(defaults: defaults, calendar: calendar,
+                                 now: { testClock.date }, retentionDays: retentionDays)
+    }
+
+    private func repository(calendarSource: CalendarSource, retentionDays: Int = 90) -> StatisticsManager {
+        let testClock = clock!
+        return StatisticsManager(defaults: defaults, calendarProvider: { calendarSource.calendar },
                                  now: { testClock.date }, retentionDays: retentionDays)
     }
 
@@ -227,5 +246,306 @@ final class StatisticsManagerTests: XCTestCase {
         XCTAssertEqual(recoveryKeys.count, 1)
         XCTAssertEqual(defaults.data(forKey: try XCTUnwrap(recoveryKeys.first)), unreadable)
         XCTAssertTrue(manager.getAllStatistics().isEmpty)
+    }
+
+    func testEastwardTimeZoneChangeSplitsPendingWorkWithoutRelabelingHistory() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T15:59:58Z")
+        let manager = repository(calendarSource: source)
+        let start = clock.date
+        manager.recordCompletedRest(at: start, id: UUID())
+
+        clock.date = date("2026-10-22T16:00:00Z")
+        source.change(to: "Asia/Shanghai")
+        XCTAssertEqual(manager.refreshToday(), DailyStatistics(date: "2026-10-23"))
+        clock.date = date("2026-10-22T16:00:02Z")
+        manager.recordWork(from: start, to: clock.date)
+
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", restCount: 1, workDuration: 2),
+            DailyStatistics(date: "2026-10-23", workDuration: 2)
+        ])
+        XCTAssertEqual(manager.getTodayStatistics().workDuration, 2)
+    }
+
+    func testWestwardChangeSplitsPendingWorkAcrossOldMidnightAndPreservesFutureDay() {
+        let source = CalendarSource("Asia/Shanghai")
+        clock.date = date("2026-10-22T15:59:58Z")
+        let manager = repository(calendarSource: source)
+        let start = clock.date
+        clock.date = date("2026-10-22T16:00:01Z")
+        source.change(to: "America/Los_Angeles")
+        manager.refreshToday()
+        clock.date = date("2026-10-22T16:00:03Z")
+        manager.recordWork(from: start, to: clock.date)
+        manager.flush()
+
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", workDuration: 4),
+            DailyStatistics(date: "2026-10-23", workDuration: 1)
+        ])
+        XCTAssertEqual(manager.getWeeklyStatistics(), [DailyStatistics(date: "2026-10-22", workDuration: 4)])
+        XCTAssertEqual(repository(calendarSource: source).getAllStatistics(), manager.getAllStatistics())
+    }
+
+    func testWorkAfterSwitchSplitsAtTheNewTimeZonesMidnight() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T15:59:58Z")
+        let manager = repository(calendarSource: source)
+        source.change(to: "Asia/Shanghai")
+        manager.refreshToday()
+        let start = clock.date
+        clock.date = date("2026-10-22T16:00:02Z")
+        manager.recordWork(from: start, to: clock.date)
+
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", workDuration: 2),
+            DailyStatistics(date: "2026-10-23", workDuration: 2)
+        ])
+    }
+
+    func testChangeFirstObservedByWorkUsesObservationAsBoundary() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let manager = repository(calendarSource: source)
+        let start = clock.date
+        source.change(to: "Asia/Shanghai")
+        clock.date = start.addingTimeInterval(1)
+        manager.recordWork(from: start, to: clock.date)
+        let nextStart = clock.date
+        clock.date = nextStart.addingTimeInterval(1)
+        manager.recordWork(from: nextStart, to: clock.date)
+
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", workDuration: 1),
+            DailyStatistics(date: "2026-10-23", workDuration: 1)
+        ])
+    }
+
+    func testSeveralTimeZoneChangesWithinOnePendingIntervalDoNotDuplicateTime() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let manager = repository(calendarSource: source)
+        let start = clock.date
+        clock.date = start.addingTimeInterval(1)
+        source.change(to: "Asia/Shanghai")
+        manager.refreshToday()
+        clock.date = start.addingTimeInterval(2)
+        source.change(to: "America/Los_Angeles")
+        manager.refreshToday()
+        clock.date = start.addingTimeInterval(3)
+        manager.recordWork(from: start, to: clock.date)
+
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", workDuration: 2),
+            DailyStatistics(date: "2026-10-23", workDuration: 1)
+        ])
+    }
+
+    func testFractionalSecondsRemainWithTheirOriginalDateAcrossSwitchAndReload() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let manager = repository(calendarSource: source)
+        var start = clock.date
+        clock.date = start.addingTimeInterval(0.5)
+        manager.recordWork(from: start, to: clock.date)
+        source.change(to: "Asia/Shanghai")
+        manager.refreshToday()
+        start = clock.date
+        clock.date = start.addingTimeInterval(0.5)
+        manager.recordWork(from: start, to: clock.date)
+        manager.flush()
+
+        let reloaded = repository(calendarSource: source)
+        start = clock.date
+        clock.date = start.addingTimeInterval(0.5)
+        reloaded.recordWork(from: start, to: clock.date)
+        source.change(to: "UTC")
+        reloaded.refreshToday()
+        start = clock.date
+        clock.date = start.addingTimeInterval(0.5)
+        reloaded.recordWork(from: start, to: clock.date)
+        XCTAssertEqual(reloaded.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", workDuration: 1),
+            DailyStatistics(date: "2026-10-23", workDuration: 1)
+        ])
+    }
+
+    func testTimeZoneChangeKeepsCompletionIDsOnTheirOriginalDates() {
+        let source = CalendarSource("Asia/Shanghai")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let manager = repository(calendarSource: source)
+        let completedAt = clock.date
+        let firstID = UUID()
+        manager.recordCompletedRest(at: completedAt, id: firstID)
+        source.change(to: "America/Los_Angeles")
+        manager.refreshToday()
+        manager.recordCompletedRest(at: completedAt, id: firstID)
+        clock.date = completedAt.addingTimeInterval(1)
+        manager.recordCompletedRest(at: clock.date, id: UUID())
+        let reloaded = repository(calendarSource: source)
+        source.change(to: "Asia/Shanghai")
+        reloaded.refreshToday()
+        reloaded.recordCompletedRest(at: completedAt, id: firstID)
+
+        XCTAssertEqual(reloaded.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", restCount: 1),
+            DailyStatistics(date: "2026-10-23", restCount: 1)
+        ])
+    }
+
+    func testRetentionFollowsCurrentLocalDatesWhileFutureRecordsRemainStored() throws {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        defaults.set(try JSONEncoder().encode([
+            DailyStatistics(date: "2026-10-20", restCount: 1),
+            DailyStatistics(date: "2026-10-21", restCount: 1),
+            DailyStatistics(date: "2026-10-22", restCount: 1),
+            DailyStatistics(date: "2026-10-23", restCount: 1),
+            DailyStatistics(date: "2026-10-24", restCount: 1)
+        ]), forKey: "dailyStatisticsData")
+        let manager = repository(calendarSource: source, retentionDays: 2)
+        XCTAssertEqual(manager.getAllStatistics().map(\.date), ["2026-10-21", "2026-10-22", "2026-10-23", "2026-10-24"])
+        source.change(to: "Asia/Shanghai")
+        manager.flush()
+        XCTAssertEqual(manager.getAllStatistics().map(\.date), ["2026-10-22", "2026-10-23", "2026-10-24"])
+        source.change(to: "America/Los_Angeles")
+        manager.refreshToday()
+        XCTAssertEqual(manager.getWeeklyStatistics().map(\.date), ["2026-10-22"])
+        XCTAssertEqual(repository(calendarSource: source, retentionDays: 2).getAllStatistics().map(\.date),
+                       ["2026-10-22", "2026-10-23", "2026-10-24"])
+    }
+
+    func testSnapshotRefreshesAndNotifiesEvenWhenTimeZoneChangeKeepsTheSameDate() {
+        let source = CalendarSource("UTC")
+        let manager = repository(calendarSource: source)
+        let originalData = defaults.data(forKey: "statisticsStoreV2")
+        var changes = 0
+        let token = NotificationCenter.default.addObserver(forName: StatisticsManager.didChangeNotification,
+                                                           object: nil, queue: nil) { notification in
+            if let sender = notification.object as? StatisticsManager, sender === manager { changes += 1 }
+        }
+        defer { NotificationCenter.default.removeObserver(token) }
+        source.change(to: "Europe/Paris")
+        let snapshot = manager.getSnapshot()
+
+        XCTAssertEqual(changes, 1)
+        XCTAssertEqual(snapshot.calendar.timeZone.identifier, "Europe/Paris")
+        XCTAssertEqual(snapshot.referenceDate, clock.date)
+        XCTAssertTrue(snapshot.records.isEmpty)
+        XCTAssertEqual(manager.refreshToday().date, "2026-10-22")
+        XCTAssertEqual(changes, 1)
+        XCTAssertEqual(defaults.data(forKey: "statisticsStoreV2"), originalData)
+    }
+
+    func testClockRollbackAfterTimeZoneChangeUsesTheCurrentZoneAndKeepsFutureHistory() {
+        let source = CalendarSource("UTC")
+        let manager = repository(calendarSource: source)
+        source.change(to: "America/Los_Angeles")
+        manager.refreshToday()
+        clock.date = date("2026-10-22T13:00:00Z")
+        manager.recordWork(from: clock.date.addingTimeInterval(-1), to: clock.date)
+        clock.date = date("2026-10-22T04:00:00Z")
+        manager.recordWork(from: clock.date.addingTimeInterval(-1), to: clock.date)
+
+        XCTAssertEqual(manager.getTodayStatistics(), DailyStatistics(date: "2026-10-21", workDuration: 1))
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-21", workDuration: 1),
+            DailyStatistics(date: "2026-10-22", workDuration: 1)
+        ])
+    }
+
+    func testChangingCalendarIdentifierDoesNotReinterpretOrDeleteExistingDateKeys() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let manager = repository(calendarSource: source)
+        manager.recordCompletedRest(at: clock.date, id: UUID())
+        source.calendar = Calendar(identifier: .buddhist)
+        source.calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        manager.refreshToday()
+        let start = clock.date
+        clock.date = start.addingTimeInterval(1)
+        manager.recordWork(from: start, to: clock.date)
+
+        XCTAssertEqual(manager.getSnapshot().calendar.identifier, .gregorian)
+        XCTAssertEqual(manager.getTodayStatistics().date, "2026-10-23")
+        XCTAssertEqual(manager.getAllStatistics(), [
+            DailyStatistics(date: "2026-10-22", restCount: 1),
+            DailyStatistics(date: "2026-10-23", workDuration: 1)
+        ])
+    }
+
+    func testProcessedWorkDiscardsOldCalendarContextsDuringRepeatedTimeZoneChanges() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let manager = repository(calendarSource: source)
+        for index in 0..<128 {
+            let start = clock.date
+            clock.date = start.addingTimeInterval(1)
+            source.change(to: index.isMultiple(of: 2) ? "Asia/Shanghai" : "America/Los_Angeles")
+            manager.refreshToday()
+            clock.date = start.addingTimeInterval(2)
+            manager.recordWork(from: start, to: clock.date)
+            XCTAssertEqual(manager.retainedCalendarContextCount, 1)
+        }
+        XCTAssertEqual(manager.getAllStatistics().reduce(0) { $0 + $1.workDuration }, 256)
+    }
+
+    func testOldCalendarContextsExpireEvenWithoutWorkSubmissions() {
+        let source = CalendarSource("UTC")
+        let manager = repository(calendarSource: source)
+        for index in 0..<130 {
+            clock.date = clock.date.addingTimeInterval(86400)
+            source.change(to: index.isMultiple(of: 2) ? "Asia/Shanghai" : "UTC")
+            manager.refreshToday()
+        }
+        XCTAssertLessThanOrEqual(manager.retainedCalendarContextCount, 91)
+        XCTAssertTrue(manager.getAllStatistics().isEmpty)
+    }
+
+    func testReloadAfterSystemCalendarChangePreservesGregorianHistoryAndCompletionIDs() {
+        let source = CalendarSource("UTC")
+        clock.date = date("2026-10-22T16:00:00Z")
+        let original = repository(calendarSource: source)
+        let completedAt = clock.date
+        let completedID = UUID()
+        original.recordCompletedRest(at: completedAt, id: completedID)
+        let savedData = defaults.data(forKey: "statisticsStoreV2")
+
+        source.calendar = Calendar(identifier: .buddhist)
+        source.calendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let reloaded = repository(calendarSource: source)
+        XCTAssertEqual(defaults.data(forKey: "statisticsStoreV2"), savedData)
+        XCTAssertEqual(reloaded.getSnapshot().calendar.identifier, .gregorian)
+        XCTAssertEqual(reloaded.getTodayStatistics(), DailyStatistics(date: "2026-10-23"))
+        reloaded.recordCompletedRest(at: completedAt, id: completedID)
+        clock.date = completedAt.addingTimeInterval(1)
+        reloaded.recordWork(from: completedAt, to: clock.date)
+        reloaded.flush()
+
+        let expected = [DailyStatistics(date: "2026-10-22", restCount: 1),
+                        DailyStatistics(date: "2026-10-23", workDuration: 1)]
+        let nextLaunch = repository(calendarSource: source)
+        XCTAssertEqual(nextLaunch.getAllStatistics(), expected)
+        let presentation = StatisticsPresentation(snapshot: nextLaunch.getSnapshot())
+        XCTAssertEqual(presentation.calendar.identifier, .gregorian)
+        XCTAssertEqual(presentation.days.last?.id, "2026-10-23")
+        XCTAssertEqual(presentation.exportRecords, expected)
+        XCTAssertEqual(presentation.csvFilename, "lumenfocus-stats-2026-10-17-2026-10-23.csv")
+    }
+
+    func testExplicitCalendarInjectsAFixedTimeZoneWithoutChangingGregorianDateKeys() {
+        clock.date = date("2026-10-22T16:00:00Z")
+        var suppliedCalendar = Calendar(identifier: .buddhist)
+        suppliedCalendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let testClock = clock!
+        let manager = StatisticsManager(defaults: defaults, calendar: suppliedCalendar, now: { testClock.date })
+        suppliedCalendar.timeZone = TimeZone(identifier: "UTC")!
+
+        XCTAssertEqual(manager.getSnapshot().calendar.identifier, .gregorian)
+        XCTAssertEqual(manager.getSnapshot().calendar.timeZone.identifier, "Asia/Shanghai")
+        XCTAssertEqual(manager.getTodayStatistics().date, "2026-10-23")
+        manager.recordCompletedRest(at: clock.date, id: UUID())
+        XCTAssertEqual(manager.getAllStatistics(), [DailyStatistics(date: "2026-10-23", restCount: 1)])
     }
 }
