@@ -55,6 +55,9 @@ struct StatisticsView: View {
         .onAppear { refresh() }
         .onChange(of: selectedRange) { _ in refresh() }
         .onReceive(NotificationCenter.default.publisher(for: StatisticsManager.didChangeNotification)) { _ in refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: .NSCalendarDayChanged).receive(on: RunLoop.main)) { _ in refresh() }
+        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didBecomeActiveNotification)) { _ in refresh() }
+        .onReceive(NSWorkspace.shared.notificationCenter.publisher(for: NSWorkspace.didWakeNotification)) { _ in refresh() }
         .alert("导出失败", isPresented: Binding(get: { exportError != nil }, set: { if !$0 { exportError = nil } })) {
             Button("好", role: .cancel) { exportError = nil }
         } message: {
@@ -173,13 +176,17 @@ struct StatisticsView: View {
                          range: .plotDimension(startPadding: 6, endPadding: 6))
             .chartXAxis {
                 AxisMarks(values: presentation.chartTickDates) { _ in
-                    AxisValueLabel(format: .dateTime.month(.defaultDigits).day())
+                    AxisValueLabel(format: Date.FormatStyle(calendar: presentation.calendar,
+                                                           timeZone: presentation.calendar.timeZone)
+                        .month(.defaultDigits).day())
                 }
             }
             .chartYAxis {
                 AxisMarks(values: presentation.chartTickCounts)
             }
             .frame(height: 155)
+            .environment(\.calendar, presentation.calendar)
+            .environment(\.timeZone, presentation.calendar.timeZone)
             .accessibilityLabel(Text("每日完成休息"))
             Text("○ 已记录为 0 · — 无记录。逐日数据见下方明细。")
                 .font(.system(size: 11))
@@ -219,13 +226,17 @@ struct StatisticsView: View {
 
     private var dateRangeLabel: String {
         let formatter = DateIntervalFormatter()
+        formatter.calendar = presentation.calendar
+        formatter.timeZone = presentation.calendar.timeZone
         formatter.dateStyle = .medium
         formatter.timeStyle = .none
         return formatter.string(from: presentation.startDate, to: presentation.endDate)
     }
 
     private func dayLabel(_ day: StatisticsPresentation.Day) -> String {
-        day.date.formatted(.dateTime.year().month(.abbreviated).day().weekday(.abbreviated))
+        day.date.formatted(Date.FormatStyle(calendar: presentation.calendar,
+                                           timeZone: presentation.calendar.timeZone)
+            .year().month(.abbreviated).day().weekday(.abbreviated))
     }
 
     private func rowAccessibilityLabel(_ day: StatisticsPresentation.Day) -> String {
@@ -237,7 +248,7 @@ struct StatisticsView: View {
     }
 
     private func refresh() {
-        presentation = StatisticsPresentation(records: StatisticsManager.shared.getAllStatistics(), range: selectedRange)
+        presentation = StatisticsPresentation(snapshot: StatisticsManager.shared.getSnapshot(), range: selectedRange)
     }
 
     private func exportCSV() {

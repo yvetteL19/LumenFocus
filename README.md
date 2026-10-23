@@ -29,12 +29,16 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
   ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 ```
 
-[测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试及通用 Release 构建。
+[测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试、双语与发布元数据检查及通用 Release Archive，保留明确标注不可分发的内部测试包。
 
-[核心流程验收](docs/refactor-validation.md)与[界面体验验收](docs/interface-validation.md)列出已验证场景和正式发行前的设备验收范围。
+[核心流程验收](docs/refactor-validation.md)、[界面体验验收](docs/interface-validation.md)和[发布前验收](docs/release-validation.md)记录各阶段证据。[构建检查说明](docs/release-build.md)提供可重复执行的产物校验与内部打包命令。
+
+## Mac App Store 首发
+
+首发渠道已确定为 Mac App Store，当前尚未加入 Apple Developer Program。工程保持 App Sandbox，仅开放用户通过保存面板选择文件的读写权限，并维护隐私清单。商店文案、审核说明与账号就绪后的操作见 [App Store 准备](docs/app-store-readiness.md)。
 
 ## 当前边界
 
 前台应用规则不能确认正在通话、共享屏幕或全屏播放。音频素材和 Widget target 尚未交付；界面不展示相应功能。旧版重复周报已停用，避免发送过期快照。
 
-源码验证和无签名构建不等于发行完成。正式发布还需覆盖多显示器布局/热插拔、Spaces、真实锁屏睡眠、VoiceOver、最低系统版本与长时间能耗，以及签名、公证和安装升级测试。
+源码验证、无签名 Archive 和本机临时签名验证不等于发行完成。正式发布还需覆盖多显示器布局/热插拔、Spaces、真实锁屏睡眠、VoiceOver、最低系统版本与长时间能耗，以及 App Store 分发签名、TestFlight 和安装升级测试。

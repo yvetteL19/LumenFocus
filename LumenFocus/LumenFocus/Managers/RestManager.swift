@@ -4,7 +4,9 @@ import Combine
 /// Renders the current reminder/rest state without deciding when a rest is due.
 final class RestManager {
     static let shared = RestManager()
-    private var overlayWindows: [RestOverlayWindow] = []
+    private var overlayWindows: [UInt32: RestOverlayWindow] = [:]
+    private var primaryDisplayID: UInt32?
+    private var isPresentingRest = false
     private var reminderPanel: BreakReminderPanel?
     private var cancellables = Set<AnyCancellable>()
     private var lastExternalApplication: NSRunningApplication?
@@ -30,14 +32,15 @@ final class RestManager {
             .sink { [weak self] stage in self?.render(stage) }
             .store(in: &cancellables)
         appState.$currentPhase
-            .receive(on: DispatchQueue.main)
+            // Like the rest stage, the UI projection is published on the main
+            // thread. A sleep/lock transition must hide the panel immediately.
             .sink { [weak self] phase in
                 if phase == .reminderDue { self?.showReminder() } else { self?.hideReminder() }
             }
             .store(in: &cancellables)
         appState.$remainingSeconds
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] seconds in self?.overlayWindows.forEach { $0.updateCountdown(seconds: seconds) } }
+            .sink { [weak self] seconds in self?.overlayWindows.values.forEach { $0.updateCountdown(seconds: seconds) } }
             .store(in: &cancellables)
     }
 
@@ -52,53 +55,94 @@ final class RestManager {
             removeOverlays(returnFocus: true)
         case .fadingIn:
             hideReminder()
-            guard overlayWindows.isEmpty else { return }
-            returnApplication = lastExternalApplication
-            createOverlays()
-            overlayWindows.forEach { $0.fadeIn(duration: RestController.fadeInDuration) }
+            beginPresentationIfNeeded()
+            let inserted = reconcileOverlays(isInitialPresentation: true)
+            inserted.forEach { $0.fadeIn(duration: RestController.fadeInDuration) }
         case .midRest:
-            if overlayWindows.isEmpty { createOverlays() }
-            overlayWindows.forEach { $0.showDimmed() }
+            let initial = !isPresentingRest
+            beginPresentationIfNeeded()
+            _ = reconcileOverlays(isInitialPresentation: initial)
+            overlayWindows.values.forEach { $0.showDimmed() }
         case .fadingOut:
-            overlayWindows.forEach { $0.fadeOut(duration: RestController.fadeOutDuration) }
+            overlayWindows.values.forEach { $0.fadeOut(duration: RestController.fadeOutDuration) }
         }
     }
 
-    private func preferredScreen() -> NSScreen? {
-        NSScreen.screens.first(where: { $0.frame.contains(NSEvent.mouseLocation) }) ?? NSScreen.main ?? NSScreen.screens.first
+    private func beginPresentationIfNeeded() {
+        guard !isPresentingRest else { return }
+        isPresentingRest = true
+        // A hotkey can arrive before an app-activation notification is delivered.
+        rememberExternalApplication(NSWorkspace.shared.frontmostApplication)
+        returnApplication = lastExternalApplication
+        primaryDisplayID = nil
     }
 
-    private func createOverlays() {
-        let screens = NSScreen.screens
-        // Freeze primary identity before creating/activating windows; NSScreen.main can then change.
-        let primary = preferredScreen()
+    private func displayLayout() -> [DisplayLayout.Screen] {
+        NSScreen.screens.compactMap { screen in
+            guard let number = screen.deviceDescription[NSDeviceDescriptionKey("NSScreenNumber")] as? NSNumber else { return nil }
+            return DisplayLayout.Screen(id: number.uint32Value, frame: screen.frame, visibleFrame: screen.visibleFrame)
+        }
+    }
+
+    /// Reuse unaffected windows so hotplug does not restart their dimming or steal focus.
+    @discardableResult
+    private func reconcileOverlays(isInitialPresentation: Bool) -> [RestOverlayWindow] {
+        let screens = displayLayout()
+        let update = DisplayLayout.update(existingFrames: overlayWindows.mapValues(\.frame), screens: screens,
+                                          retaining: primaryDisplayID, pointer: NSEvent.mouseLocation)
+        let overlayWasKey = overlayWindows.values.contains(where: \.isKeyWindow)
+        let appWasActive = NSApp.isActive
+        primaryDisplayID = update.primaryID
+        for id in update.removedIDs {
+            guard let window = overlayWindows.removeValue(forKey: id) else { continue }
+            window.cleanup()
+            window.orderOut(nil)
+            window.close()
+        }
+        var inserted: [RestOverlayWindow] = []
         for screen in screens {
-            let window = RestOverlayWindow(screen: screen, isPrimaryDisplay: screen == primary)
+            if let window = overlayWindows[screen.id] {
+                window.isPrimaryDisplay = screen.id == primaryDisplayID
+                if update.resizedIDs.contains(screen.id) { window.setFrame(screen.frame, display: true) }
+                continue
+            }
+            let window = RestOverlayWindow(screenFrame: screen.frame, isPrimaryDisplay: screen.id == primaryDisplayID)
             window.updateCountdown(seconds: appState.remainingSeconds)
+            // New windows join the current stage; existing displays keep their animation.
+            if restController.stage.value != .fadingIn { window.showDimmed() }
             window.orderFrontRegardless()
-            overlayWindows.append(window)
+            overlayWindows[screen.id] = window
+            inserted.append(window)
         }
-        NSApp.activate(ignoringOtherApps: true)
-        let key = overlayWindows.first(where: \.isPrimaryDisplay) ?? overlayWindows.first
-        key?.makeKeyAndOrderFront(nil)
+        let shouldActivate = RestFocusPolicy.shouldActivate(isInitialPresentation: isInitialPresentation,
+                                                            hasDisplays: !overlayWindows.isEmpty)
+        if shouldActivate { NSApp.activate(ignoringOtherApps: true) }
+        let needsReplacementKeyWindow = appWasActive && overlayWasKey && !overlayWindows.values.contains(where: \.isKeyWindow)
+        if shouldActivate || needsReplacementKeyWindow,
+           let primaryDisplayID, let key = overlayWindows[primaryDisplayID] {
+            key.makeKeyAndOrderFront(nil)
+        }
+        return inserted
     }
 
     private func removeOverlays(returnFocus: Bool) {
-        let hadOverlays = !overlayWindows.isEmpty
-        let windows = overlayWindows
+        let overlayWasKey = overlayWindows.values.contains(where: \.isKeyWindow)
+        let application = returnApplication
+        let shouldRestore = returnFocus && RestFocusPolicy.shouldRestore(appIsActive: NSApp.isActive,
+            overlayWasKey: overlayWasKey, returnAppIsRunning: application.map { !$0.isTerminated } ?? false)
+        let windows = Array(overlayWindows.values)
         overlayWindows.removeAll()
+        primaryDisplayID = nil
+        isPresentingRest = false
+        returnApplication = nil
         windows.forEach { $0.cleanup(); $0.orderOut(nil); $0.close() }
-        if returnFocus, hadOverlays {
-            let application = returnApplication
-            returnApplication = nil
-            if NSApp.isActive, let application, !application.isTerminated {
-                application.activate(options: [.activateIgnoringOtherApps])
-            }
-        }
+        if shouldRestore { application?.activate(options: [.activateIgnoringOtherApps]) }
     }
 
     private func showReminder() {
-        guard reminderPanel == nil, let screen = preferredScreen() else { return }
+        let screens = displayLayout()
+        let selection = DisplayLayout.update(existingFrames: [:], screens: screens, retaining: nil, pointer: NSEvent.mouseLocation)
+        guard reminderPanel == nil, let screen = screens.first(where: { $0.id == selection.primaryID }) else { return }
         let panel = BreakReminderPanel()
         position(panel, on: screen)
         reminderPanel = panel
@@ -112,27 +156,38 @@ final class RestManager {
         reminderPanel = nil
     }
 
-    private func position(_ panel: NSPanel, on screen: NSScreen) {
-        let frame = screen.visibleFrame
-        panel.setFrameOrigin(NSPoint(x: frame.maxX - panel.frame.width - 16, y: frame.maxY - panel.frame.height - 16))
+    private func position(_ panel: NSPanel, on screen: DisplayLayout.Screen) {
+        panel.setFrameOrigin(DisplayLayout.reminderOrigin(panelSize: panel.frame.size, visibleFrame: screen.visibleFrame))
     }
 
     private func screensChanged() {
-        if let panel = reminderPanel, let screen = preferredScreen() { position(panel, on: screen) }
+        // Recreate a due reminder if it initially had no available display.
+        if appState.currentPhase == .reminderDue {
+            let screens = displayLayout()
+            let selection = DisplayLayout.update(existingFrames: [:], screens: screens, retaining: nil, pointer: NSEvent.mouseLocation)
+            if let panel = reminderPanel, let screen = screens.first(where: { $0.id == selection.primaryID }) {
+                position(panel, on: screen)
+            } else if screens.isEmpty {
+                hideReminder()
+            } else {
+                showReminder()
+            }
+        } else {
+            hideReminder()
+        }
         let stage = restController.stage.value
         guard stage != .idle else { return }
-        removeOverlays(returnFocus: false)
-        createOverlays()
+        let inserted = reconcileOverlays(isInitialPresentation: false)
         switch stage {
-        case .fadingOut: overlayWindows.forEach { $0.showDimmed(); $0.fadeOut(duration: RestController.fadeOutDuration) }
-        case .fadingIn, .midRest: overlayWindows.forEach { $0.showDimmed() }
+        case .fadingOut: inserted.forEach { $0.fadeOut(duration: RestController.fadeOutDuration) }
+        case .fadingIn, .midRest: inserted.forEach { $0.showDimmed() }
         case .idle: break
         }
     }
 }
 
 /// A local, actionable reminder; no notification permission and no app activation required.
-private final class BreakReminderPanel: NSPanel {
+final class BreakReminderPanel: NSPanel {
     init() {
         super.init(contentRect: NSRect(x: 0, y: 0, width: 410, height: 196), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .floating

@@ -144,7 +144,6 @@ final class WorkspaceMonitor {
     private func publish(_ next: CycleEnvironment) {
         guard environment.value != next else { return }
         // Application names are for the live UI, never a persistent activity log.
-        Log.workspace.debug("Environment changed; away=\(next.isAway)")
         environment.send(next)
         let signal = next.suppressesReminder
             ? PauseSignal(reason: next.reason ?? .screenLocked, detail: next.detail) : nil

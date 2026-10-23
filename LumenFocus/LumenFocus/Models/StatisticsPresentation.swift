@@ -31,31 +31,43 @@ struct StatisticsPresentation {
     }
 
     let range: StatisticsRange
+    /// Freeze labels and chart bucketing to the same calendar as the repository snapshot.
+    let calendar: Calendar
     /// Oldest first, including placeholders for dates without a stored record.
     let days: [Day]
     let startDate: Date
     let endDate: Date
     let endDateExclusive: Date
 
+    init(snapshot: StatisticsManager.Snapshot, range: StatisticsRange = .sevenDays) {
+        self.init(records: snapshot.records, range: range,
+                  now: snapshot.referenceDate, calendar: snapshot.calendar)
+    }
+
     init(records: [DailyStatistics], range: StatisticsRange = .sevenDays,
          now: Date = Date(), calendar: Calendar = .current) {
         self.range = range
-        let today = calendar.startOfDay(for: now)
-        let start = calendar.date(byAdding: .day, value: -(range.rawValue - 1), to: today) ?? today
+        // Match the repository's Gregorian date-key convention even before the
+        // first snapshot arrives, regardless of the system's display calendar.
+        var storageCalendar = Calendar(identifier: .gregorian)
+        storageCalendar.timeZone = calendar.timeZone
+        self.calendar = storageCalendar
+        let today = storageCalendar.startOfDay(for: now)
+        let start = storageCalendar.date(byAdding: .day, value: -(range.rawValue - 1), to: today) ?? today
         startDate = start
         endDate = today
-        endDateExclusive = calendar.date(byAdding: .day, value: 1, to: today) ?? today
+        endDateExclusive = storageCalendar.date(byAdding: .day, value: 1, to: today) ?? today
 
         let formatter = DateFormatter()
         formatter.locale = Locale(identifier: "en_US_POSIX")
-        formatter.calendar = calendar
-        formatter.timeZone = calendar.timeZone
+        formatter.calendar = storageCalendar
+        formatter.timeZone = storageCalendar.timeZone
         formatter.dateFormat = "yyyy-MM-dd"
         // The repository has unique keys. Keeping the last copy here also avoids
         // accidental double-counting if a caller supplies a repeated snapshot.
         let byDate = Dictionary(records.map { ($0.date, $0) }, uniquingKeysWith: { _, latest in latest })
         days = (0..<range.rawValue).compactMap { offset in
-            guard let date = calendar.date(byAdding: .day, value: offset, to: start) else { return nil }
+            guard let date = storageCalendar.date(byAdding: .day, value: offset, to: start) else { return nil }
             let key = formatter.string(from: date)
             return Day(id: key, date: date, record: byDate[key])
         }

@@ -141,4 +141,52 @@ final class StatisticsPresentationTests: XCTestCase {
             XCTAssertEqual(result.chartTickCounts, [0, 3, 6, 9, 12])
         }
     }
+
+    func testSnapshotKeepsAnAtomicCalendarRangeAcrossEastwardAndWestwardRefresh() {
+        let instant = date("2026-10-22T16:30:00Z")
+        let records = [DailyStatistics(date: "2026-10-22", workDuration: 20),
+                       DailyStatistics(date: "2026-10-23", workDuration: 30)]
+        let east = StatisticsPresentation(snapshot: .init(records: records, calendar: calendar("Asia/Shanghai"),
+                                                          referenceDate: instant))
+        let west = StatisticsPresentation(snapshot: .init(records: records, calendar: calendar("America/Los_Angeles"),
+                                                          referenceDate: instant))
+
+        XCTAssertEqual(east.days.last?.id, "2026-10-23")
+        XCTAssertEqual(east.timedWorkSeconds, 50)
+        XCTAssertEqual(east.calendar.timeZone.identifier, "Asia/Shanghai")
+        XCTAssertEqual(west.days.last?.id, "2026-10-22")
+        XCTAssertEqual(west.timedWorkSeconds, 20)
+        XCTAssertEqual(west.calendar.timeZone.identifier, "America/Los_Angeles")
+        XCTAssertEqual(west.exportRecords.map(\.date), ["2026-10-22"])
+        // Creating the refreshed range cannot mutate an earlier snapshot.
+        XCTAssertEqual(east.csvFilename, "lumenfocus-stats-2026-10-17-2026-10-23.csv")
+    }
+
+    func testSnapshotAfterMidnightMovesRangeWithoutInventingTodaysRecord() {
+        let records = [DailyStatistics(date: "2026-10-22", restCount: 1)]
+        let before = StatisticsPresentation(snapshot: .init(records: records, calendar: calendar("Asia/Shanghai"),
+                                                            referenceDate: date("2026-10-22T15:59:59Z")))
+        let after = StatisticsPresentation(snapshot: .init(records: records, calendar: calendar("Asia/Shanghai"),
+                                                           referenceDate: date("2026-10-22T16:00:00Z")))
+        XCTAssertEqual(before.days.last?.record?.restCount, 1)
+        XCTAssertEqual(after.days.last?.id, "2026-10-23")
+        XCTAssertNil(after.days.last?.record)
+        XCTAssertEqual(after.exportRecords, records)
+        XCTAssertEqual(after.activeDayCount, 1)
+    }
+
+    func testNonGregorianDisplayCalendarStillMatchesStoredDateKeysAndCSV() {
+        var suppliedCalendar = Calendar(identifier: .buddhist)
+        suppliedCalendar.timeZone = TimeZone(identifier: "Asia/Shanghai")!
+        let records = [DailyStatistics(date: "2026-10-23", restCount: 1)]
+        let result = StatisticsPresentation(records: records, now: date("2026-10-22T16:00:00Z"),
+                                            calendar: suppliedCalendar)
+
+        XCTAssertEqual(result.calendar.identifier, .gregorian)
+        XCTAssertEqual(result.calendar.timeZone.identifier, "Asia/Shanghai")
+        XCTAssertEqual(result.days.last?.id, "2026-10-23")
+        XCTAssertEqual(result.days.last?.date, date("2026-10-22T16:00:00Z"))
+        XCTAssertEqual(result.completedRestCount, 1)
+        XCTAssertEqual(result.csvContents, "date,completed_rest_count,timed_work_seconds\n2026-10-23,1,0\n")
+    }
 }
