@@ -8,25 +8,6 @@
 import Foundation
 import os
 
-/// 本地化字符串短名（AppKit 路径用）
-/// 例：`L("退出")` → en 区显示 "Quit"，zh-Hans 区显示 "退出"
-@inline(__always) func L(_ key: String, comment: String = "") -> String {
-    NSLocalizedString(key, comment: comment)
-}
-
-/// Shared work-time formatting. Preserve short recorded intervals as seconds;
-/// longer activity uses the system's abbreviated hours and minutes.
-func formatWorkDuration(_ seconds: Int) -> String {
-    if (0..<60).contains(seconds) {
-        return String(format: L("%d 秒"), seconds)
-    }
-    let f = DateComponentsFormatter()
-    f.allowedUnits = seconds >= 3600 ? [.hour, .minute] : [.minute]
-    f.unitsStyle = .abbreviated
-    f.zeroFormattingBehavior = .dropAll
-    return f.string(from: TimeInterval(max(0, seconds))) ?? "0m"
-}
-
 /// 全局 Logger 命名空间。按模块拆 category，便于在 Console.app 中过滤。
 enum Log {
     private static let subsystem: String = Bundle.main.bundleIdentifier ?? "Yvette.LumenFocus"

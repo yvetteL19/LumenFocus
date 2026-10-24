@@ -18,16 +18,36 @@ struct ForegroundAppRuleResolver {
 
     private(set) var lastExternalApplication: Application?
 
-    private static let videoCallBundleIDs: Set<String> = [
-        "us.zoom.xos", "com.microsoft.teams", "com.microsoft.teams2", "com.apple.FaceTime",
-        "com.google.GoogleMeet", "com.cisco.webexmeetingsapp", "com.webex.meetingmanager",
-        "com.skype.skype", "com.tencent.meeting", "com.alibaba.DingTalkMac",
-        "com.tencent.WeWorkMac", "com.electron.discord", "com.bluejeansnet.BlueJeans"
+    struct SupportedApp {
+        /// Product names remain native names in every interface language.
+        let name: String
+        let bundleIDs: Set<String>
+    }
+
+    // One definition drives both detection and the list shown in settings.
+    static let meetingApps: [SupportedApp] = [
+        SupportedApp(name: "Zoom", bundleIDs: ["us.zoom.xos"]),
+        SupportedApp(name: "Microsoft Teams", bundleIDs: ["com.microsoft.teams", "com.microsoft.teams2"]),
+        SupportedApp(name: "FaceTime", bundleIDs: ["com.apple.FaceTime"]),
+        SupportedApp(name: "Google Meet", bundleIDs: ["com.google.GoogleMeet"]),
+        SupportedApp(name: "Webex", bundleIDs: ["com.cisco.webexmeetingsapp", "com.webex.meetingmanager"]),
+        SupportedApp(name: "Skype", bundleIDs: ["com.skype.skype"]),
+        SupportedApp(name: "Tencent Meeting", bundleIDs: ["com.tencent.meeting"]),
+        SupportedApp(name: "DingTalk", bundleIDs: ["com.alibaba.DingTalkMac"]),
+        SupportedApp(name: "WeCom", bundleIDs: ["com.tencent.WeWorkMac"]),
+        SupportedApp(name: "Discord", bundleIDs: ["com.electron.discord"]),
+        SupportedApp(name: "BlueJeans", bundleIDs: ["com.bluejeansnet.BlueJeans"])
     ]
-    private static let fullscreenAppBundleIDs: Set<String> = [
-        "com.apple.iWork.Keynote", "com.microsoft.PowerPoint", "com.apple.QuickTimePlayerX",
-        "com.colliderli.iina", "io.mpv", "org.videolan.vlc"
+    static let presentationApps: [SupportedApp] = [
+        SupportedApp(name: "Keynote", bundleIDs: ["com.apple.iWork.Keynote"]),
+        SupportedApp(name: "PowerPoint", bundleIDs: ["com.microsoft.PowerPoint"]),
+        SupportedApp(name: "QuickTime Player", bundleIDs: ["com.apple.QuickTimePlayerX"]),
+        SupportedApp(name: "IINA", bundleIDs: ["com.colliderli.iina"]),
+        SupportedApp(name: "mpv", bundleIDs: ["io.mpv"]),
+        SupportedApp(name: "VLC", bundleIDs: ["org.videolan.vlc"])
     ]
+    private static let videoCallBundleIDs = Set(meetingApps.flatMap(\.bundleIDs))
+    private static let fullscreenAppBundleIDs = Set(presentationApps.flatMap(\.bundleIDs))
 
     mutating func resolve(bundleID: String?, name: String?, ownBundleID: String,
                           enabled: Bool, videoCall: Bool, fullscreen: Bool) -> PauseSignal? {
@@ -69,7 +89,7 @@ final class WorkspaceMonitor {
     private init() {
         let settings = AppSettings.shared
         enabled = settings.enableSmartDetection
-        enableIdle = settings.detectIdle
+        enableIdle = settings.reminderMode == .immersive && settings.detectIdle
         enableVideoCall = settings.detectVideoCall
         enableFullscreen = settings.detectFullscreen
         enableScreenLock = settings.detectScreenLock

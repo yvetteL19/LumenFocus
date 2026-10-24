@@ -19,7 +19,7 @@ final class RestOverlayWindow: NSWindow {
     init(screenFrame: CGRect, isPrimaryDisplay: Bool = true,
          reduceMotion: @escaping () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion },
          onEnd: @escaping () -> Void = { RestController.shared.cancelRest() },
-         onPostpone: @escaping () -> Void = { RestController.shared.snooze(by: 120) }) {
+         onPostpone: @escaping () -> Void = { RestController.shared.snooze(by: ReminderPresentation.defaultSnoozeSeconds) }) {
         self.isPrimaryDisplay = isPrimaryDisplay
         self.reduceMotion = reduceMotion
         self.onEnd = onEnd
@@ -50,21 +50,23 @@ final class RestOverlayWindow: NSWindow {
         content.addSubview(dimView)
 
         headingLabel = label(L("看向屏幕之外"), size: isPrimaryDisplay ? 30 : 25, weight: .medium)
-        let instruction = label(L("找一个远处的物体，轻松眨眼。"), size: 17)
+        headingLabel.identifier = NSUserInterfaceItemIdentifier("rest.heading")
+        let instruction = label(L("看向窗外或房间远处，自然眨眼。"), size: 19)
         instruction.maximumNumberOfLines = 0
         instruction.lineBreakMode = .byWordWrapping
-        countdownLabel = label("", size: 42, weight: .medium)
+        countdownLabel = label("", size: 17)
         countdownLabel.identifier = NSUserInterfaceItemIdentifier("rest.countdown")
-        countdownLabel.font = .monospacedDigitSystemFont(ofSize: 42, weight: .medium)
+        countdownLabel.font = .monospacedDigitSystemFont(ofSize: 17, weight: .regular)
+        countdownLabel.textColor = NSColor.white.withAlphaComponent(0.75)
 
-        let end = NSButton(title: L("结束休息"), target: self, action: #selector(endRest))
+        let end = NSButton(title: L("提前结束"), target: self, action: #selector(endRest))
         end.bezelStyle = .rounded
         end.keyEquivalent = "\u{1b}"
         end.keyEquivalentModifierMask = []
         end.identifier = NSUserInterfaceItemIdentifier("rest.end")
         end.setAccessibilityIdentifier("rest.end")
-        end.setAccessibilityHelp(L("按Escape键提前结束休息"))
-        let postpone = NSButton(title: L("2 分钟后再提醒"), target: self, action: #selector(postponeRest))
+        end.setAccessibilityHelp(L("提前结束不会计入完成次数。"))
+        let postpone = NSButton(title: ReminderPresentation.defaultSnoozeTitle(), target: self, action: #selector(postponeRest))
         postpone.bezelStyle = .rounded
         postpone.identifier = NSUserInterfaceItemIdentifier("rest.postpone")
         postpone.setAccessibilityIdentifier("rest.postpone")
@@ -74,7 +76,7 @@ final class RestOverlayWindow: NSWindow {
         controls.orientation = .horizontal
         controls.spacing = 12
         controls.distribution = .fillEqually
-        let hint = label(L("随时可结束 · Esc"), size: 13)
+        let hint = label(L("随时可提前结束 · Esc"), size: 13)
         let stack = NSStackView(views: [headingLabel, instruction, countdownLabel, controls, hint])
         stack.orientation = .vertical
         stack.alignment = .centerX

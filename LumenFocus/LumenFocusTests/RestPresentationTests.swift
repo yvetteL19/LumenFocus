@@ -52,6 +52,12 @@ final class RestPresentationTests: XCTestCase {
             XCTAssertEqual(end?.keyEquivalentModifierMask, [])
             XCTAssertTrue(end?.nextKeyView === postpone)
             XCTAssertTrue(postpone?.nextKeyView === end)
+            XCTAssertEqual(end?.title, L("提前结束"))
+            XCTAssertEqual(postpone?.title, ReminderPresentation.defaultSnoozeTitle())
+            let heading = control("rest.heading", in: window) as? NSTextField
+            let countdown = control("rest.countdown", in: window) as? NSTextField
+            XCTAssertGreaterThan(heading?.font?.pointSize ?? 0, countdown?.font?.pointSize ?? 0,
+                                 "Looking away is the instruction; the timer is secondary")
             var completed = false
             window.fadeIn(duration: 100) { completed = true }
             XCTAssertTrue(completed, "Reduce Motion must not wait for an animation")
@@ -118,6 +124,57 @@ final class RestPresentationTests: XCTestCase {
             let buttons = panel.contentView.map { descendants(of: $0).compactMap { $0 as? NSButton } } ?? []
             XCTAssertEqual(buttons.count, 3)
             XCTAssertTrue(buttons.allSatisfy { $0.isEnabled && !$0.title.isEmpty })
+        }
+    }
+
+    func testLongFrenchReminderTextAndAllActionsFitWithoutOrderingAWindow() {
+        onMain {
+            let translations = [
+                "离屏休息 %@": "Faites une pause loin de votre écran pendant %@",
+                "开始后，所有屏幕会渐暗。你可以随时提前结束。":
+                    "Lorsque vous commencerez votre pause, tous vos écrans s’assombriront progressivement. Vous pouvez terminer la pause plus tôt à tout moment.",
+                "开始休息": "Commencer la pause",
+                "%@后再提醒": "Me le rappeler dans %@",
+                "跳过 · 下次 %@": "Passer cette pause · prochain rappel prévu à %@"
+            ]
+            var actions: [String] = []
+            let panel = BreakReminderPanel(localize: { translations[$0] ?? $0 },
+                onStart: { actions.append("start") }, onPostpone: { actions.append("postpone") },
+                onSkip: { actions.append("skip") })
+            defer { panel.close() }
+            guard let content = panel.contentView else { return XCTFail("Missing panel content") }
+            content.layoutSubtreeIfNeeded()
+            XCTAssertFalse(panel.isVisible)
+            XCTAssertGreaterThan(content.bounds.height, 196, "The panel must grow with its content")
+            for id in ["reminderPanel.title", "reminderPanel.detail", "reminderPanel.start",
+                       "reminderPanel.postpone", "reminderPanel.skip"] {
+                guard let view = control(id, in: panel) else { XCTFail("Missing \(id)"); continue }
+                let frame = content.convert(view.bounds, from: view)
+                XCTAssertTrue(content.bounds.insetBy(dx: -1, dy: -1).contains(frame), "Clipped \(id): \(frame)")
+                XCTAssertGreaterThan(frame.height, 0)
+            }
+            let detail = control("reminderPanel.detail", in: panel) as? NSTextField
+            XCTAssertGreaterThan(detail?.frame.height ?? 0, 30, "Long explanations must wrap")
+            for id in ["reminderPanel.start", "reminderPanel.postpone", "reminderPanel.skip"] {
+                (control(id, in: panel) as? NSButton)?.performClick(nil)
+            }
+            XCTAssertEqual(actions, ["start", "postpone", "skip"])
+        }
+    }
+
+    func testGentleReminderRefreshesItsDurationAndSkipEstimateWhileVisible() {
+        onMain {
+            let now = Date(timeIntervalSince1970: 1_800_000_000)
+            let panel = BreakReminderPanel(restSeconds: 20, workMinutes: 40, now: now)
+            defer { panel.close() }
+            let title = control("reminderPanel.title", in: panel) as? NSTextField
+            let skip = control("reminderPanel.skip", in: panel) as? NSButton
+            XCTAssertEqual(title?.stringValue, ReminderPresentation.restInvitationTitle(seconds: 20))
+            let later = now.addingTimeInterval(120)
+            panel.refresh(restSeconds: 600, workMinutes: 15, now: later)
+            XCTAssertEqual(title?.stringValue, ReminderPresentation.restInvitationTitle(seconds: 600))
+            XCTAssertEqual(skip?.title, ReminderPresentation.skipTitle(workMinutes: 15, now: later))
+            XCTAssertEqual(ReminderPresentation.defaultSnoozeSeconds, 300)
         }
     }
 }

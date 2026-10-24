@@ -24,6 +24,7 @@ final class TimerManager: ObservableObject {
     }
 
     func start() {
+        appState.clearRestOutcome()
         refreshConfiguration()
         engine.start()
         scheduleHeartbeat()
@@ -31,6 +32,7 @@ final class TimerManager: ObservableObject {
     }
 
     func stop() {
+        appState.clearRestOutcome()
         timer?.invalidate()
         timer = nil
         engine.stop()
@@ -40,6 +42,7 @@ final class TimerManager: ObservableObject {
 
     /// Pauses reminders, not work measurement. Meeting/lock restrictions stay independent.
     func pause(duration: TimeInterval? = nil) {
+        appState.clearRestOutcome()
         let now = Date()
         let until: Date
         if let duration {
@@ -54,6 +57,7 @@ final class TimerManager: ObservableObject {
     }
 
     func resume() {
+        appState.clearRestOutcome()
         if !engine.isStarted { engine.start() }
         engine.resume()
         scheduleHeartbeat()
@@ -66,6 +70,7 @@ final class TimerManager: ObservableObject {
     }
 
     func triggerManualRest() {
+        appState.clearRestOutcome()
         // Settings publishers are delivered on the next main-loop turn. An
         // immediate click on Rest now must still use the just-selected duration.
         if !engine.isStarted { engine.start() }
@@ -76,12 +81,14 @@ final class TimerManager: ObservableObject {
     }
 
     func snoozeReminder(by seconds: TimeInterval) {
+        appState.clearRestOutcome()
         engine.snooze(by: seconds)
         synchronize()
         StatisticsManager.shared.flush()
     }
 
     func skipReminder() {
+        appState.clearRestOutcome()
         engine.skipReminder()
         synchronize()
         StatisticsManager.shared.flush()
@@ -134,7 +141,9 @@ final class TimerManager: ObservableObject {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 guard let self else { return }
+                self.appState.clearRestOutcome()
                 self.engine.configure(Self.configuration())
+                self.reloadEnvironmentSettings()
                 self.synchronize()
             }
             .store(in: &cancellables)
@@ -155,7 +164,7 @@ final class TimerManager: ObservableObject {
     private func reloadEnvironmentSettings() {
         let settings = AppSettings.shared
         workspaceMonitor.configure(enabled: settings.enableSmartDetection,
-                                   idle: settings.detectIdle,
+                                   idle: settings.reminderMode == .immersive && settings.detectIdle,
                                    videoCall: settings.detectVideoCall,
                                    fullscreen: settings.detectFullscreen,
                                    screenLock: settings.detectScreenLock)
@@ -189,6 +198,7 @@ final class TimerManager: ObservableObject {
         appState.refreshStatistics()
         restController.render(engine.snapshot.rest)
         for case .restEnded(_, _, let reason) in events {
+            appState.recordRestOutcome(reason)
             restController.publishEnd(reason)
             statistics.flush()
         }

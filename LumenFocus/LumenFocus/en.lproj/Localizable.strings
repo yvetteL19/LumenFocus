@@ -1,9 +1,4 @@
-/*
-  Localizable.strings (English)
-  LumenFocus
-*/
-
-// MARK: - Onboarding
+/* LumenFocus — en */
 
 "欢迎使用 LumenFocus" = "Welcome to LumenFocus";
 "欢迎" = "Welcome";
@@ -12,7 +7,7 @@
 "本地记录用眼数据，无任何上传" = "All eye-care stats stay on your Mac";
 "先感受一下" = "See it first";
 "到了该休息的时刻，LumenFocus 会用 20 秒让屏幕缓慢暗下来。\n点下面试 10 秒压缩版。" = "When it's time to rest, LumenFocus dims your screen over 20 seconds.\nTap below for a 10-second preview.";
-"演示中…" = "Demoing…";
+"演示中…" = "Demo in progress…";
 "亲身感受一下（10 秒）" = "Try it (10 seconds)";
 "演示会用与正式休息相同的渐暗效果，但不计入今日统计。" = "Same gradual fade as the real thing, but won't count toward your stats.";
 "演示中 · 按 ESC 或点击结束" = "Demo · press ESC or click to end";
@@ -23,7 +18,7 @@
 "深度工作" = "Deep work";
 "50 分钟 / 10 分钟" = "50 min / 10 min";
 "自定义" = "Custom";
-"自己设定" = "Roll your own";
+"自己设定" = "Set your own";
 "推荐" = "Recommended";
 "工作 %d 分钟" = "Work %d min";
 "休息 %d 分钟" = "Rest %d min";
@@ -35,9 +30,6 @@
 "开始守护我的眼睛" = "Start protecting my eyes";
 "继续" = "Continue";
 "上一步" = "Back";
-
-// MARK: - Menu bar popover
-
 "今日护眼" = "Today";
 "%d 天" = "%d days";
 "工作中" = "Working";
@@ -62,9 +54,6 @@
 "退出 LumenFocus" = "Quit LumenFocus";
 "%d 次 · %@" = "%d rests · %@";
 "%@ · %d 次" = "%@ · breaks: %d";
-
-// MARK: - Menu bar context menu (AppKit)
-
 "今日已护眼：%d 次" = "Eye care today: %d";
 "累计用眼：%@" = "Screen time today: %@";
 "下次休息：%d 分钟后" = "Next break: %d min";
@@ -72,9 +61,6 @@
 "暂停至今日结束" = "Paused until end of day";
 "LumenFocus (已暂停)" = "LumenFocus (Paused)";
 "再撑 2 分钟后再次提醒" = "Remind me again in 2 minutes";
-
-// MARK: - Menu items
-
 "稍后提醒" = "Snooze";
 "5 分钟" = "5 minutes";
 "15 分钟" = "15 minutes";
@@ -90,9 +76,6 @@
 "重新显示欢迎引导" = "Replay onboarding";
 "退出" = "Quit";
 "恢复护眼" = "Resume";
-
-// MARK: - Tooltips
-
 "已暂停，剩余 %d 分钟" = "Paused — %d min left";
 "已暂停至今日结束" = "Paused until end of day";
 "LumenFocus - 已自动暂停（检测到无操作）" = "LumenFocus — auto-paused (no activity)";
@@ -100,33 +83,25 @@
 "LumenFocus - 已自动暂停（检测到全屏应用）" = "LumenFocus — auto-paused (fullscreen app)";
 "LumenFocus - 已自动暂停（系统勿扰模式）" = "LumenFocus — auto-paused (Focus mode)";
 "LumenFocus - 已自动暂停（屏幕锁定）" = "LumenFocus — auto-paused (screen locked)";
-
-// MARK: - Overlay
-
 "按 ESC 提前结束" = "Press ESC to end early";
 "再撑 2 分钟" = "Give me 2 more minutes";
-"剩余休息时间" = "Remaining rest time";
+"剩余休息时间" = "Break time remaining";
 "剩余休息时间 %d 分 %d 秒" = "Remaining %d min %d sec";
 "按Escape键提前结束休息" = "Press Escape to end rest early";
 "吸气" = "Inhale";
 "屏息" = "Hold";
 "呼气" = "Exhale";
-
-// MARK: - Settings
-
 "LumenFocus 设置" = "LumenFocus Settings";
 "时间配置" = "Schedule";
 "工作时长" = "Work duration";
-"休息时长" = "Rest duration";
+"休息时长" = "Break length";
 "%d 分钟" = "%d min";
-
 "休息体验" = "Rest experience";
 "环境音" = "Ambient sound";
 "关闭" = "Off";
 "轻雨" = "Rain";
 "白噪音" = "White noise";
 "森林" = "Forest";
-
 "智能避让" = "Smart auto-pause";
 "启用智能避让" = "Enable smart auto-pause";
 "当检测到以下场景时自动暂停提醒，避免在错误的时机打扰你。" = "Pause reminders when these contexts are detected, so we never interrupt you at the wrong moment.";
@@ -134,7 +109,6 @@
 "全屏演示 / 视频" = "Fullscreen presentation / video";
 "长时间无操作（≥ 1 分钟）" = "Idle for ≥ 1 min";
 "屏幕锁定 / 系统睡眠" = "Screen locked / system asleep";
-
 "外观与启动" = "Appearance & launch";
 "语言" = "Language";
 "跟随系统" = "Follow system";
@@ -142,13 +116,11 @@
 "切换语言需在重启 App 后生效。" = "Changing the language takes effect after you relaunch the app.";
 "菜单栏显示剩余分钟数字" = "Show remaining minutes on menu bar";
 "例如：「眼 23m」。关闭则只显示图标" = "e.g. \"Eye 23m\". Off keeps the icon only";
-
 "统计数据" = "Statistics";
 "本周护眼" = "This week";
 "本周用眼" = "Eye time";
 "平均每天" = "Daily avg";
 "查看详细统计" = "View detailed statistics";
-
 "关于与隐私" = "About & Privacy";
 "隐私政策" = "Privacy Policy";
 "联系支持" = "Contact Support";
@@ -158,9 +130,6 @@
 "取消" = "Cancel";
 "恢复" = "Reset";
 "确定要恢复默认设置吗？" = "Reset all settings to default?";
-
-// MARK: - Statistics window
-
 "统计" = "Statistics";
 "当前连续" = "Current streak";
 "最长连续" = "Longest streak";
@@ -170,15 +139,9 @@
 "导出 CSV" = "Export CSV";
 "还没有护眼记录" = "No eye-care records yet";
 "完成第一次休息后，这里会出现你的趋势图和热力图。" = "After your first rest, your trends and heatmap will appear here.";
-
-// MARK: - Notifications
-
 "本周护眼总结" = "This week's eye care";
 "护眼 %d 次 · 用眼 %@" = "%d rests · %@ of screen time";
 " · 连续 %d 天达标" = " · %d-day streak";
-
-// Reliable reminder flow
-
 "%d 秒" = "%d sec";
 "2 分钟后再提醒" = "Remind me in 2 minutes";
 "5 分钟后再提醒" = "Remind me in 5 minutes";
@@ -220,7 +183,7 @@
 "明天恢复提醒，也可随时手动恢复。" = "Reminders resume tomorrow. You can also resume them anytime.";
 "暂不打扰" = "Holding reminders";
 "暂停提醒" = "Pause reminders";
-"暂停至 %@" = "Pause until %@";
+"暂停至 %@" = "Paused until %@";
 "本次继续提醒" = "Allow reminders this time";
 "沉浸渐暗" = "Immersive dimming";
 "演示中可按 Esc 或点击结束。不计入休息记录；也可直接继续。" = "Press Esc or click to end the demo. It is not recorded as a break. You can also continue without trying it.";
@@ -281,9 +244,6 @@
 "规则应用" = "A rule-matched app";
 "屏幕已锁定或睡眠，提醒和工作计时已暂停。" = "The screen is locked or asleep. Reminders and work timing are paused.";
 "长时间无操作时使用轻提醒，工作时长继续累计。" = "With no recent input, reminders stay gentle. Work time continues to count.";
-
-// Daily interface refinements
-
 "%d 分 %d 秒" = "%d min %d sec";
 "休息并恢复提醒" = "Break & resume reminders";
 "会议应用" = "Meeting apps";
@@ -320,12 +280,8 @@
 "通用" = "General";
 "锁屏与睡眠" = "Screen lock and sleep";
 "键盘与辅助功能" = "Keyboard and accessibility";
-
-// Statistics ranges and daily records
-
 "启用提醒规则" = "Enable reminder rules";
 "关闭提醒规则后，锁屏与睡眠仍会暂停工作计时。" = "Screen lock and sleep still pause work timing when reminder rules are off.";
-
 "%@，完成休息 %d 次，计时工作 %@" = "%@, %d completed breaks, %@ timed work";
 "%@，无记录" = "%@, no record";
 "%d / %d 天" = "%d / %d days";
@@ -345,3 +301,49 @@
 "近 30 天" = "Last 30 days";
 "近 90 天" = "Last 90 days";
 "这段时间还没有活动记录" = "No activity recorded in this range";
+"提前结束" = "End early";
+"离屏休息 %@" = "A %@ screen break";
+"开始后，所有屏幕会渐暗。你可以随时提前结束。" = "Starting will dim all displays. You can end the break early at any time.";
+"休息已完成" = "Break complete";
+"已提前结束，未计入完成次数。" = "Break ended early and was not counted as completed.";
+"已延后提醒" = "Reminder postponed";
+"%@后再提醒" = "Remind me in %@";
+"跳过 · 下次 %@" = "Skip · next reminder %@";
+"延后 %@ · %@" = "Delay %@ · %@";
+"暂停 %@ · %@" = "Pause %@ · until %@";
+"明天 %@" = "Tomorrow %@";
+"LumenFocus · 可以开始休息了" = "LumenFocus · A break is ready when you are";
+"重新设置休息节奏…" = "Run setup again…";
+"看向窗外或房间远处，自然眨眼。" = "Look out a window or across the room. Blink naturally.";
+"提前结束不会计入完成次数。" = "Ending early will not count as a completed break.";
+"随时可提前结束 · Esc" = "End early anytime · Esc";
+"新的休息时长从下次休息生效。" = "The new break length applies to your next break.";
+"开始或提前结束休息" = "Start or end a break early";
+"提醒间隔" = "Reminder interval";
+"提醒节奏" = "Reminder rhythm";
+"每 %@ 提醒 · 每次休息 %@" = "Remind every %@ · Break for %@";
+"预览渐暗" = "Preview dimming";
+"预览持续 10 秒，仅在当前屏幕显示；按 Esc 或点击可结束。" = "This 10-second preview appears on the current display only. Press Esc or click to end it.";
+"登录 Mac 时启动" = "Launch at login";
+"之后可以在菜单栏调整。记录只保存在这台 Mac。" = "You can change this later from the menu bar. Records stay on this Mac.";
+"稍后设置并退出" = "Set up later and quit";
+"未能更改登录启动设置" = "Couldn’t change launch at login";
+"请在系统设置的登录项中检查。已显示当前状态；你可以再次点击开始提醒。" = "Check Login Items in System Settings. The switch now shows the current status; you can choose Start reminders again.";
+"提醒" = "Reminders";
+"提醒避让" = "Reminder rules";
+"锁屏或睡眠时自动暂停工作计时，不受提醒规则影响。" = "Locking your Mac or putting it to sleep always pauses work timing.";
+"查看包含的应用" = "Show included apps";
+"这些应用在前台时暂缓提醒，工作计时继续。离开后会先留出缓冲。" = "Reminders wait while these apps are active. Work timing continues, with a short buffer after you switch away.";
+"1 分钟无操作时，改用轻提醒" = "Use a gentle reminder after 1 minute without input";
+"无操作时不自动渐暗屏幕，工作计时继续。" = "Without input, the screen won’t dim automatically. Work timing continues.";
+"未能更改登录启动设置。请在系统设置的登录项中检查。" = "Couldn’t change launch at login. Check Login Items in System Settings.";
+"未能重新启动" = "Couldn’t relaunch";
+"关于这些记录" = "About these records";
+"提前结束的休息不计入完成次数。无记录不代表当天没有工作。" = "Breaks ended early don’t count as completed. No record doesn’t mean no work took place.";
+"记录保存在这台 Mac，保留 90 天；可导出保存更久。" = "Records stay on this Mac for 90 days. Export them to keep a longer history.";
+"休息记录" = "Break records";
+"LumenFocus 会自动记录工作计时，完整休息也会显示在这里。" = "LumenFocus records timed work automatically. Completed breaks appear here too.";
+"○ 已记录为 0 · — 无记录" = "○ Recorded as zero · — No record";
+"提醒后手动开始" = "Remind me first";
+"到点自动渐暗" = "Dim automatically";
+"现在休息 %@" = "Take a %@ break now";

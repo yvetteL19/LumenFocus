@@ -6,17 +6,18 @@ struct StatisticsView: View {
     @State private var selectedRange: StatisticsRange = .sevenDays
     @State private var presentation = StatisticsPresentation(records: [])
     @State private var exportError: String?
+    @State private var showsDailyDetails = false
 
     var body: some View {
         VStack(spacing: 0) {
             header
             Divider()
             List {
-                Section {
-                    summary
-                        .listRowSeparator(.hidden)
-                } header: {
-                    Text("区间摘要")
+                if presentation.hasRecords {
+                    Section {
+                        summary
+                            .listRowSeparator(.hidden)
+                    }
                 }
 
                 Section {
@@ -31,24 +32,32 @@ struct StatisticsView: View {
                     Text("每日完成休息")
                 }
 
-                Section {
-                    dailyColumnLabels
-                    ForEach(Array(presentation.days.reversed())) { day in
-                        dailyRow(day)
+                if presentation.hasRecords {
+                    Section {
+                        DisclosureGroup("每日明细", isExpanded: $showsDailyDetails) {
+                            dailyColumnLabels
+                            ForEach(Array(presentation.days.reversed())) { day in
+                                dailyRow(day)
+                            }
+                        }
                     }
-                } header: {
-                    Text("每日明细")
+                }
+                Section {
+                    DisclosureGroup("关于这些记录") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Text("仅统计计时工作与完成的休息，不代表健康改善。")
+                            Text("提前结束的休息不计入完成次数。无记录不代表当天没有工作。")
+                            Text("记录保存在这台 Mac，保留 90 天；可导出保存更久。")
+                        }
+                        .font(.callout)
+                        .foregroundColor(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.vertical, 8)
+                    }
                 }
             }
             .listStyle(.inset)
             .padding(.horizontal, 12)
-            Divider()
-            Text("本地保存最近 90 天统计 · 导出文件由你管理")
-                .font(.system(size: 11))
-                .foregroundColor(Color.LumenFocus.textSecondary)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(.horizontal, 24)
-                .padding(.vertical, 12)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .background(Color.LumenFocus.backgroundPrimary)
@@ -68,7 +77,7 @@ struct StatisticsView: View {
     private var header: some View {
         VStack(alignment: .leading, spacing: 12) {
             HStack {
-                Text("统计")
+                Text("休息记录")
                     .font(.system(size: 22, weight: .semibold))
                 Spacer()
                 Button(action: exportCSV) {
@@ -78,43 +87,40 @@ struct StatisticsView: View {
                 .disabled(!presentation.hasRecords)
                 .help(L("导出当前范围内有记录的日期，不补齐无记录日期。"))
             }
-            Text("仅统计计时工作与完成的休息，不代表健康改善。")
-                .font(.system(size: 12))
-                .foregroundColor(Color.LumenFocus.textSecondary)
-            HStack(spacing: 16) {
-                Picker("统计范围", selection: $selectedRange) {
-                    ForEach(StatisticsRange.allCases) { range in
-                        Text(verbatim: L(range.titleKey)).tag(range)
-                    }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 16) {
+                    rangePicker.fixedSize()
+                    Spacer(minLength: 0)
+                    Text(verbatim: dateRangeLabel)
+                        .fixedSize()
                 }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .frame(width: 290)
-                Spacer(minLength: 0)
-                Text(verbatim: dateRangeLabel)
-                    .font(.system(size: 12))
-                    .foregroundColor(Color.LumenFocus.textSecondary)
-                    .multilineTextAlignment(.trailing)
+                VStack(alignment: .leading, spacing: 10) {
+                    rangePicker
+                    Text(verbatim: dateRangeLabel)
+                }
             }
+            .font(.system(size: 12))
+            .foregroundColor(Color.LumenFocus.textSecondary)
         }
         .foregroundColor(Color.LumenFocus.textPrimary)
         .padding(.horizontal, 24)
         .padding(.vertical, 18)
     }
 
-    private var summary: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            HStack(spacing: 12) {
-                StatCard(label: "完成休息", value: presentation.hasRecords
-                    ? String(format: L("%d 次"), presentation.completedRestCount) : L("无记录"))
-                StatCard(label: "计时工作", value: presentation.hasRecords
-                    ? formatWorkDuration(presentation.timedWorkSeconds) : L("无记录"))
-                StatCard(label: "有活动的天数", value: String(format: L("%d / %d 天"),
-                                                           presentation.activeDayCount, selectedRange.rawValue))
+    private var rangePicker: some View {
+        Picker("统计范围", selection: $selectedRange) {
+            ForEach(StatisticsRange.allCases) { range in
+                Text(verbatim: L(range.titleKey)).tag(range)
             }
-            Text("有计时工作或完成休息的日期计为活动日。无记录不代表当天没有工作。")
-                .font(.system(size: 11))
-                .foregroundColor(Color.LumenFocus.textSecondary)
+        }
+        .pickerStyle(.segmented)
+        .labelsHidden()
+    }
+
+    private var summary: some View {
+        HStack(spacing: 12) {
+            StatCard(label: "完成休息", value: localizedCompletedBreaks(presentation.completedRestCount))
+            StatCard(label: "计时工作", value: formatWorkDuration(presentation.timedWorkSeconds))
         }
         .padding(.vertical, 4)
     }
@@ -127,7 +133,7 @@ struct StatisticsView: View {
                 .accessibilityHidden(true)
             Text("这段时间还没有活动记录")
                 .font(.system(size: 15, weight: .medium))
-            Text("开始计时或完成一次休息后，这里会显示你的记录。")
+            Text("LumenFocus 会自动记录工作计时，完整休息也会显示在这里。")
                 .font(.system(size: 12))
                 .multilineTextAlignment(.center)
                 .foregroundColor(Color.LumenFocus.textSecondary)
@@ -147,7 +153,7 @@ struct StatisticsView: View {
                             .foregroundStyle(Color.LumenFocus.ink)
                             .cornerRadius(2)
                             .accessibilityLabel(Text(dayLabel(day)))
-                            .accessibilityValue(Text(String(format: L("%d 次"), record.restCount)))
+                            .accessibilityValue(Text(verbatim: localizedCompletedBreaks(record.restCount)))
                     } else {
                         PointMark(x: .value(L("日"), day.date, unit: .day),
                                   y: .value(L("完成休息"), 0))
@@ -157,7 +163,7 @@ struct StatisticsView: View {
                                     .frame(width: 6, height: 6)
                             }
                             .accessibilityLabel(Text(dayLabel(day)))
-                            .accessibilityValue(Text(String(format: L("%d 次"), 0)))
+                            .accessibilityValue(Text(verbatim: localizedCompletedBreaks(0)))
                     }
                 } else {
                     PointMark(x: .value(L("日"), day.date, unit: .day),
@@ -176,7 +182,7 @@ struct StatisticsView: View {
                          range: .plotDimension(startPadding: 6, endPadding: 6))
             .chartXAxis {
                 AxisMarks(values: presentation.chartTickDates) { _ in
-                    AxisValueLabel(format: Date.FormatStyle(calendar: presentation.calendar,
+                    AxisValueLabel(format: Date.FormatStyle(locale: AppLocalization.locale, calendar: presentation.calendar,
                                                            timeZone: presentation.calendar.timeZone)
                         .month(.defaultDigits).day())
                 }
@@ -188,7 +194,7 @@ struct StatisticsView: View {
             .environment(\.calendar, presentation.calendar)
             .environment(\.timeZone, presentation.calendar.timeZone)
             .accessibilityLabel(Text("每日完成休息"))
-            Text("○ 已记录为 0 · — 无记录。逐日数据见下方明细。")
+            Text("○ 已记录为 0 · — 无记录")
                 .font(.system(size: 11))
                 .foregroundColor(Color.LumenFocus.textSecondary)
         }
@@ -211,7 +217,7 @@ struct StatisticsView: View {
         HStack(spacing: 16) {
             Text(verbatim: dayLabel(day))
                 .frame(maxWidth: .infinity, alignment: .leading)
-            Text(verbatim: day.record.map { String(format: L("%d 次"), $0.restCount) } ?? L("无记录"))
+            Text(verbatim: day.record.map { localizedCompletedBreaks($0.restCount) } ?? L("无记录"))
                 .frame(width: 110, alignment: .trailing)
             Text(verbatim: day.record.map { formatWorkDuration($0.workDuration) } ?? "—")
                 .frame(width: 150, alignment: .trailing)
@@ -226,6 +232,7 @@ struct StatisticsView: View {
 
     private var dateRangeLabel: String {
         let formatter = DateIntervalFormatter()
+        formatter.locale = AppLocalization.locale
         formatter.calendar = presentation.calendar
         formatter.timeZone = presentation.calendar.timeZone
         formatter.dateStyle = .medium
@@ -234,7 +241,7 @@ struct StatisticsView: View {
     }
 
     private func dayLabel(_ day: StatisticsPresentation.Day) -> String {
-        day.date.formatted(Date.FormatStyle(calendar: presentation.calendar,
+        day.date.formatted(Date.FormatStyle(locale: AppLocalization.locale, calendar: presentation.calendar,
                                            timeZone: presentation.calendar.timeZone)
             .year().month(.abbreviated).day().weekday(.abbreviated))
     }
@@ -243,8 +250,8 @@ struct StatisticsView: View {
         guard let record = day.record else {
             return String(format: L("%@，无记录"), dayLabel(day))
         }
-        return String(format: L("%@，完成休息 %d 次，计时工作 %@"),
-                      dayLabel(day), record.restCount, formatWorkDuration(record.workDuration))
+        return localizedRecordAccessibility(dayLabel: dayLabel(day), count: record.restCount,
+                                            workDuration: formatWorkDuration(record.workDuration))
     }
 
     private func refresh() {

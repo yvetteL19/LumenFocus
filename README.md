@@ -2,11 +2,13 @@
 
 LumenFocus 是一款原生 macOS 菜单栏离屏休息提醒工具。无需账号，工作与休息记录保存在本机。
 
-- 默认轻提醒：到点提示，由你决定何时开始；也可主动选择沉浸渐暗。
+- 一页开始：确认提醒间隔与休息时长后开始，预览和登录启动均可选。
+- 默认先提醒：由你决定何时开始；也可主动选择到点自动渐暗。
 - 秒级休息：支持 20 秒至 15 分钟，渐暗渐亮不占用所选休息时间。
 - 清楚的控制：延后本次、暂停提醒、跳过本次和提前结束各有独立语义；每块屏幕全程保留结束与延后按钮，支持 Esc。
 - 应用避让规则：指定会议或媒体应用在前台时暂缓提醒，工作计时继续。无输入仅降低提醒强度；锁屏与睡眠暂停工作计时。
-- 清晰设置：节奏、勿扰规则、通用、数据与支持分组，支持直接调整休息时长与随时开始休息。
+- 清晰设置：提醒、提醒避让、通用三个分组；展示避让应用名单，休息完成或提前结束后可在菜单中查看结果。
+- 四种界面语言：英语、简体中文、日本语和 Français；默认跟随系统，语言更改在重启后生效。
 - 本地统计：切换最近 7 / 30 / 90 天，查看已计时工作、完成休息和每日明细，按当前范围导出 CSV。无记录与记录为零分别显示；统计不代表实际屏幕暴露或健康效果。
 
 ## 开发
@@ -29,9 +31,9 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
   ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 ```
 
-[测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试、双语与发布元数据检查及通用 Release Archive，保留明确标注不可分发的内部测试包。
+[测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试、四语言资源与发布元数据检查及通用 Release Archive，保留明确标注不可分发的内部测试包。
 
-[核心流程验收](docs/refactor-validation.md)、[界面体验验收](docs/interface-validation.md)和[发布前验收](docs/release-validation.md)记录各阶段证据。[构建检查说明](docs/release-build.md)提供可重复执行的产物校验与内部打包命令。
+[核心流程验收](docs/refactor-validation.md)、[界面体验验收](docs/interface-validation.md)、[发布前验收](docs/release-validation.md)和[新用户体验重构验收](docs/ux-implementation-validation-2026-10-23.md)记录各阶段证据。[构建检查说明](docs/release-build.md)提供可重复执行的产物校验与内部打包命令。
 
 ## Mac App Store 首发
 

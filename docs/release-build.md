@@ -23,10 +23,10 @@ python3 -m unittest discover -s scripts -p 'test_*.py' -v
 
 检查内容：
 
-- 两种语言的键集合一致、无重复或空翻译、格式化参数类型/数量/位置一致；允许 `%1$@` 等显式重排。检查显式 `L`、`NSLocalizedString`、`LocalizedStringKey`、`localize` 的静态字符串参数。任意运行时拼接键、所有 SwiftUI 可见文字与视觉排版仍需人工核对。
+- 英语、简体中文、日语、法语的键集合一致、无重复或空翻译、格式化参数类型/数量/位置一致；允许 `%1$@` 等显式重排。检查独立复数资源的分支、参数和普通键冲突，以及显式 `L`、`NSLocalizedString`、`LocalizedStringKey`、`localize` 的静态字符串参数。任意运行时拼接键、所有 SwiftUI 可见文字与视觉排版仍需人工核对。
 - 10 个 Mac 图标表示均有文件，PNG 尺寸匹配 asset 声明；不套用 iOS 图标透明度规则。
 - Bundle ID 为 `Yvette.LumenFocus`、菜单栏应用标记为真、版本符合预期、声明最低 macOS 13.0；主可执行文件同时含 arm64 与 x86_64，两个 Mach-O slice 的实际最低系统均不高于 13.0。
-- 产物包含非空 `Assets.car`、`AppIcon.icns`、中英文 Localizable.strings；翻译与源码完全一致。PrivacyInfo.xcprivacy 必须合法且与源码一致。源码隐私与最小 entitlement 基线有意采用严格匹配，改动需同时审阅检查规则。
+- 产物包含非空 `Assets.car`、`AppIcon.icns`，以及四语言的 Localizable.strings 和 Localizable.stringsdict；翻译与源码完全一致。PrivacyInfo.xcprivacy 必须合法且与源码一致。源码隐私与最小 entitlement 基线有意采用严格匹配，改动需同时审阅检查规则。
 - 传入 `.xcarchive` 时校验 ArchiveVersion、应用路径与应用身份/版本一致。这不是 Xcode Organizer 的完整 archive 验证，也不核对 dSYM UUID 或恢复符号能力。
 
 PrivacyInfo.xcprivacy 是本项目主动维护的声明，不表示“缺少此文件的 macOS App 必然被拒”。脚本也不判断某个 Xcode/SDK 是否满足未来提交时 Apple 的版本要求；正式提交前须重新核对。

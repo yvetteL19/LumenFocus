@@ -7,12 +7,16 @@ enum AppLanguage: String, CaseIterable, Identifiable {
     case system
     case zhHans = "zh-Hans"
     case en
+    case ja
+    case fr
     var id: String { rawValue }
     var displayName: String {
         switch self {
         case .system: return L("跟随系统")
         case .zhHans: return "简体中文"
         case .en: return "English"
+        case .ja: return "日本語"
+        case .fr: return "Français"
         }
     }
 }
@@ -23,8 +27,8 @@ enum ReminderMode: String, CaseIterable, Identifiable {
     var id: String { rawValue }
     var displayName: String {
         switch self {
-        case .gentle: return L("轻提醒")
-        case .immersive: return L("沉浸渐暗")
+        case .gentle: return L("提醒后手动开始")
+        case .immersive: return L("到点自动渐暗")
         }
     }
 }
@@ -73,6 +77,9 @@ final class AppSettings: ObservableObject {
             Self.applyLanguagePreference(appLanguage, defaults: defaults)
         }
     }
+    /// Capture the launch preference. Bundle/AppKit localization stays fixed until relaunch.
+    let appliedLanguage: AppLanguage
+    var hasPendingLanguageChange: Bool { appLanguage != appliedLanguage }
 
     private enum Keys {
         static let workDuration = "workDurationMinutes"
@@ -124,7 +131,9 @@ final class AppSettings: ObservableObject {
         detectScreenLock = defaults.object(forKey: Keys.detectScreenLock) as? Bool ?? true
         ambientTrack = AmbientTrack(rawValue: defaults.string(forKey: Keys.ambientTrack) ?? "") ?? .off
         showRemainingMinutesInMenuBar = defaults.bool(forKey: Keys.showRemainingMinutesInMenuBar)
-        appLanguage = AppLanguage(rawValue: defaults.string(forKey: Keys.appLanguage) ?? "") ?? .system
+        let language = AppLanguage(rawValue: defaults.string(forKey: Keys.appLanguage) ?? "") ?? .system
+        appLanguage = language
+        appliedLanguage = language
     }
 
     var hasCompletedOnboarding: Bool {
@@ -135,8 +144,7 @@ final class AppSettings: ObservableObject {
     static func applyLanguagePreference(_ language: AppLanguage, defaults: UserDefaults = .standard) {
         switch language {
         case .system: defaults.removeObject(forKey: "AppleLanguages")
-        case .zhHans: defaults.set(["zh-Hans"], forKey: "AppleLanguages")
-        case .en: defaults.set(["en"], forKey: "AppleLanguages")
+        case .zhHans, .en, .ja, .fr: defaults.set([language.rawValue], forKey: "AppleLanguages")
         }
     }
 

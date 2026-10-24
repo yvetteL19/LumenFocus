@@ -22,7 +22,7 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 
 - `CycleEngine`: pure Foundation state/deadline model with an injectable `CycleClock`. Continuous elapsed time drives transitions; calendar time labels reminders and attributes statistics. It owns all cycle semantics.
 - `TimerManager`: heartbeat and adapter for settings, environment, statistics and presentation. It never decrements a second counter or schedules delayed resume callbacks.
-- `AppState`: observable UI projection, with no independent storage or lifecycle decisions.
+- `AppState`: observable UI projection, with no independent storage or lifecycle decisions. Session-only rest receipts clear on the next invitation, rest, pause, suppression or explicit schedule change.
 - `ReminderPresentation`: pure display decisions for menu state, duration labels and visible action targets; native and SwiftUI menus share compact countdown/pause formatting.
 - `StatisticsPresentation`: one calendar range for summaries, chart, daily rows and CSV. Missing days stay absent from exports; existing zero records remain distinct. The statistics view observes repository changes, not every timer heartbeat.
 - `RestController`: translates engine progress into visual stages and forwards user actions. It does not own another timer.
@@ -33,11 +33,12 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 - `SharedDataAccess`: optional future Widget bridge, gated on the actual App Group signing entitlement.
 - `AppSettings`: seconds-based rest duration, legacy minute migration, bounded persisted values and isolated defaults injection.
 - `AppDelegate`: skips production startup/termination side effects in the XCTest host.
+- `RelaunchIntentStore` / `RelaunchHandoff`: App Sandbox ignores `NSWorkspace.OpenConfiguration.arguments`. Language relaunch instead writes a one-time intent inside the app container, with a random token, predecessor PID/launch date, bundle ID and 30-second expiry. Only a newly launched process may consume it (allowing one second for LaunchServices date precision); atomically claim the file, validate the predecessor identity, and wait for that process to terminate before loading records, starting timers or registering shortcuts. Failed launches clear only their own token. Waiting processes cannot initialize runtime through termination, reopen or commands. The replacement opens Settings directly on General without relying on launch arguments.
 
 ## Behavior contract
 
 - Work interval: 15–120 minutes; default 40. Rest: 20–900 seconds; default 300. A 20-second rest means 20 seconds of rest plus 2 seconds dimming and 1 second brightening.
-- Upcoming reminder + N minutes: move the effective deadline by N. Due reminder or active rest + N: remind N minutes from now.
+- Upcoming reminder + N minutes: move the effective deadline by N. Due reminder or active rest + N: remind N minutes from now. Use the shared reminder action policy; the default postponement is five minutes in every entry point.
 - Pause suppresses reminders until a specified time; work measurement continues. Resume retains the prior due time with at least 60 seconds of recovery grace. It does not override environmental suppression.
 - Skip explicitly starts another full work interval. Early cancellation is not completion: keep the original work deadline and allow at least five minutes before reminding again.
 - Foreground-app rules suppress reminders but continue measuring work. No keyboard/mouse input is not proof of rest; it only downgrades automatic immersive reminders to gentle prompts.
@@ -49,11 +50,11 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 ## UI and resources
 
 - Use native black/white semantic colors from `Utils/Colors.swift`, clear typography and reachable controls. Respect Reduce Motion. Keep every overlay dismissible by visible buttons and Esc.
-- Localize all visible strings in `en.lproj/Localizable.strings` and `zh-Hans.lproj/Localizable.strings`. SwiftUI dynamic strings require explicit localization (`L` or `LocalizedStringKey`).
+- Localize all visible strings in `en`, `zh-Hans`, `ja` and `fr` resources, including plural forms and accessibility text. Shared localization, duration and plural helpers live in `Utils/Localization.swift`; SwiftUI dynamic strings require explicit localization (`L` or `LocalizedStringKey`). The first launch follows the system language, with English as the development fallback. Language changes apply after relaunch; preserve regional time conventions and stable CSV/storage formats.
 - Settings use native grouped tabs and resizable windows. Let prominent button styles choose their label contrast in active and inactive windows; do not force white text. Explicitly left-align multiline Form footers.
 - Closing settings/statistics/popover releases their observing SwiftUI trees; reopening recreates them. Keep the settings frame autosave. Coalesce menu-bar model publications on the next main-queue turn and avoid reassigning unchanged native properties; do not reduce engine heartbeat or rest countdown accuracy for UI performance.
-- Onboarding is optional and scrollable with fixed navigation. It cannot require notification permission or enabling launch at login.
-- Audio assets are absent: do not expose nonfunctional sound choices. Breathing/visual exercise scaffolds are not part of the default break flow.
+- Onboarding uses a single draft and one commit action. Closing first-run setup exits without silently applying defaults; cancelling a later setup preserves existing preferences. It cannot require notification permission or enabling launch at login.
+- Audio assets are absent: do not expose nonfunctional sound choices. Unused breathing/visual exercise views have been removed; breaks invite users to look away.
 - Preferences and records remain local; no account or backend. `LumenFocus.xcdatamodeld` is unused scaffold; do not introduce Core Data.
 - Use `os.Logger` via `Log.*`; do not log foreground application identities or user activity histories.
 

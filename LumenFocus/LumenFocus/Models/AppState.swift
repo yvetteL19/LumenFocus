@@ -27,8 +27,22 @@ final class AppState: ObservableObject {
     @Published private(set) var environmentDetail: String?
     @Published private(set) var todayRestCount: Int = 0
     @Published private(set) var todayWorkDuration: Int = 0
+    /// A small, session-only receipt for the last break. Never a health claim or persistent score.
+    @Published private(set) var lastRestOutcome: RestEndReason?
 
-    private init() {}
+    init() {}
+
+    func clearRestOutcome() {
+        if lastRestOutcome != nil { lastRestOutcome = nil }
+    }
+
+    func recordRestOutcome(_ reason: RestEndReason) {
+        guard currentPhase == .working, reason != .interrupted else {
+            clearRestOutcome()
+            return
+        }
+        if lastRestOutcome != reason { lastRestOutcome = reason }
+    }
 
     var isPaused: Bool {
         if case .paused = currentPhase { return true }
@@ -85,6 +99,7 @@ final class AppState: ObservableObject {
         }
         if environmentDetail != detail { environmentDetail = detail }
         if currentPhase != phase { currentPhase = phase }
+        if phase != .working { clearRestOutcome() }
     }
 
     func refreshStatistics() {

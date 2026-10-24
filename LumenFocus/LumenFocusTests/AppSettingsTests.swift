@@ -40,6 +40,34 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(AppSettings(defaults: defaults).restDurationSeconds, 20)
     }
 
+    func testNewInstallFollowsSystemAndLanguageChangesWaitForRelaunch() {
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.appLanguage, .system)
+        XCTAssertEqual(settings.appliedLanguage, .system)
+        XCTAssertFalse(settings.hasPendingLanguageChange)
+        settings.appLanguage = .fr
+        XCTAssertEqual(defaults.stringArray(forKey: "AppleLanguages"), ["fr"])
+        XCTAssertEqual(settings.appliedLanguage, .system)
+        XCTAssertTrue(settings.hasPendingLanguageChange)
+        settings.appLanguage = .system
+        XCTAssertFalse(settings.hasPendingLanguageChange)
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"])
+    }
+
+    func testEveryExplicitLanguagePersistsAndBecomesAppliedAfterRelaunch() {
+        for language in AppLanguage.allCases where language != .system {
+            let settings = AppSettings(defaults: defaults)
+            settings.appLanguage = language
+            XCTAssertEqual(defaults.stringArray(forKey: "AppleLanguages"), [language.rawValue])
+            let relaunched = AppSettings(defaults: defaults)
+            XCTAssertEqual(relaunched.appLanguage, language)
+            XCTAssertEqual(relaunched.appliedLanguage, language)
+            XCTAssertFalse(relaunched.hasPendingLanguageChange)
+        }
+        XCTAssertEqual(Set(AppLanguage.allCases.filter { $0 != .system }.map(\.rawValue)),
+                       Set(AppLocalization.supportedLanguages))
+    }
+
     func testCorruptPersistedDurationsAreBounded() {
         defaults.set(Int.max, forKey: "restDurationMinutes")
         defaults.set(-100, forKey: "workDurationMinutes")

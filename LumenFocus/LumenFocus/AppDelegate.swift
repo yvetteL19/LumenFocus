@@ -14,6 +14,9 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBarController: MenuBarController?
     private lazy var timerManager = TimerManager.shared
     private lazy var restManager = RestManager.shared
+    private var relaunchHandoff: RelaunchHandoff?
+    private var runtimeDidStart = false
+    private var showGeneralAfterRelaunch = false
 
     private var isTestHost: Bool {
         ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
@@ -25,6 +28,49 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Hosted unit tests must never initialize production timers or preferences.
         guard !isTestHost else { return }
+        let current = NSRunningApplication.current
+        if let launchDate = current.launchDate, let bundleID = Bundle.main.bundleIdentifier,
+           let intent = RelaunchIntentStore.shared.consume(currentPID: current.processIdentifier,
+                                                           currentLaunchDate: launchDate,
+                                                           bundleIdentifier: bundleID) {
+            if let previous = NSRunningApplication(processIdentifier: intent.previousPID) {
+                // Validate the original process, not a later reuse of its PID.
+                if intent.matchesPredecessor(bundleIdentifier: previous.bundleIdentifier,
+                                             launchDate: previous.launchDate) {
+                    showGeneralAfterRelaunch = true
+                    waitForPredecessor(previous)
+                    return
+                }
+            } else {
+                // The original instance may already have completed its final flush.
+                showGeneralAfterRelaunch = true
+            }
+        }
+        // Keep explicit command-line entry points useful for development launches.
+        let arguments = ProcessInfo.processInfo.arguments
+        if let index = arguments.firstIndex(of: "--relaunch-after-pid"), index + 1 < arguments.count,
+           let previousPID = Int32(arguments[index + 1]), previousPID > 0,
+           previousPID != ProcessInfo.processInfo.processIdentifier,
+           let previous = NSRunningApplication(processIdentifier: previousPID),
+           previous.bundleIdentifier == Bundle.main.bundleIdentifier {
+            waitForPredecessor(previous)
+            return
+        }
+        startRuntime()
+    }
+
+    private func waitForPredecessor(_ previous: NSRunningApplication) {
+        let handoff = RelaunchHandoff(isRunning: { _ in !previous.isTerminated })
+        relaunchHandoff = handoff
+        handoff.wait(for: previous.processIdentifier) { [weak self] in self?.startRuntime() }
+        // Return immediately so the caller's launch completion can terminate the
+        // predecessor, flush its records and release its global shortcut.
+    }
+
+    private func startRuntime() {
+        guard !runtimeDidStart else { return }
+        runtimeDidStart = true
+        relaunchHandoff = nil
         // 隐藏Dock图标（通过Info.plist配置 LSUIElement = YES）
         // 这里作为备用方案，确保应用不显示在Dock
         NSApp.setActivationPolicy(.accessory)
@@ -58,10 +104,15 @@ class AppDelegate: NSObject, NSApplicationDelegate {
 
         // 关闭默认窗口
         closeAllWindows()
+
+        if settings.hasCompletedOnboarding,
+           showGeneralAfterRelaunch || ProcessInfo.processInfo.arguments.contains("--show-settings-general") {
+            SettingsWindowManager.shared.showSettings(initiallyShowGeneral: true)
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
-        guard !isTestHost else { return }
+        guard !isTestHost, runtimeDidStart else { return }
         // 停止定时器
         timerManager.stop()
 
@@ -71,8 +122,29 @@ class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
-        // 防止点击Dock图标时打开窗口（虽然已经隐藏了Dock图标）
+        guard !isTestHost, runtimeDidStart else { return false }
+        // Opening the app again should reveal its controls, even without a Dock window.
+        if !AppSettings.shared.hasCompletedOnboarding {
+            showOnboardingWindow()
+        } else if !flag {
+            menuBarController?.showPopover()
+        }
         return false
+    }
+
+    func showSettings() {
+        guard runtimeDidStart else { return }
+        SettingsWindowManager.shared.showSettings()
+    }
+
+    func showReminders() {
+        guard runtimeDidStart else { return }
+        menuBarController?.showPopover()
+    }
+
+    func showStatistics() {
+        guard runtimeDidStart else { return }
+        StatisticsWindowManager.shared.show()
     }
 
     // MARK: - Private Methods

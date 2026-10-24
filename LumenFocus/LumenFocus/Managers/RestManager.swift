@@ -42,6 +42,16 @@ final class RestManager {
             .receive(on: DispatchQueue.main)
             .sink { [weak self] seconds in self?.overlayWindows.values.forEach { $0.updateCountdown(seconds: seconds) } }
             .store(in: &cancellables)
+        Publishers.Merge3(appState.$todayWorkDuration.map { _ in () },
+                          AppSettings.shared.$restDurationSeconds.map { _ in () },
+                          AppSettings.shared.$workDurationMinutes.map { _ in () })
+            .receive(on: RunLoop.main)
+            .sink { [weak self] _ in
+                guard let panel = self?.reminderPanel else { return }
+                panel.refresh(restSeconds: AppSettings.shared.restDurationSeconds,
+                              workMinutes: AppSettings.shared.workDurationMinutes)
+            }
+            .store(in: &cancellables)
     }
 
     private func rememberExternalApplication(_ application: NSRunningApplication?) {
@@ -143,7 +153,8 @@ final class RestManager {
         let screens = displayLayout()
         let selection = DisplayLayout.update(existingFrames: [:], screens: screens, retaining: nil, pointer: NSEvent.mouseLocation)
         guard reminderPanel == nil, let screen = screens.first(where: { $0.id == selection.primaryID }) else { return }
-        let panel = BreakReminderPanel()
+        let panel = BreakReminderPanel(restSeconds: AppSettings.shared.restDurationSeconds,
+                                       workMinutes: AppSettings.shared.workDurationMinutes)
         position(panel, on: screen)
         reminderPanel = panel
         // A non-activating panel neither becomes key nor steals the current app's focus.
@@ -188,8 +199,27 @@ final class RestManager {
 
 /// A local, actionable reminder; no notification permission and no app activation required.
 final class BreakReminderPanel: NSPanel {
-    init() {
-        super.init(contentRect: NSRect(x: 0, y: 0, width: 410, height: 196), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+    private let localize: (String) -> String
+    private let onStart: () -> Void
+    private let onPostpone: () -> Void
+    private let onSkip: () -> Void
+    private var titleLabel: NSTextField!
+    private var skipButton: NSButton!
+    private var contentStack: NSStackView!
+    private var lastRefresh: String?
+    private let panelWidth: CGFloat = 420
+    private let contentWidth: CGFloat = 380
+
+    init(restSeconds: Int = 300, workMinutes: Int = 40, now: Date = Date(),
+         localize: @escaping (String) -> String = { L($0) },
+         onStart: @escaping () -> Void = { TimerManager.shared.triggerManualRest() },
+         onPostpone: @escaping () -> Void = { TimerManager.shared.snoozeReminder(by: ReminderPresentation.defaultSnoozeSeconds) },
+         onSkip: @escaping () -> Void = { TimerManager.shared.skipReminder() }) {
+        self.localize = localize
+        self.onStart = onStart
+        self.onPostpone = onPostpone
+        self.onSkip = onSkip
+        super.init(contentRect: NSRect(x: 0, y: 0, width: 420, height: 1), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         level = .floating
         collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
         isFloatingPanel = true
@@ -201,36 +231,81 @@ final class BreakReminderPanel: NSPanel {
         content.wantsLayer = true
         content.layer?.cornerRadius = 12
         contentView = content
-        let title = NSTextField(labelWithString: L("给眼睛一个小空隙"))
-        title.font = .systemFont(ofSize: 18, weight: .medium)
-        let detail = NSTextField(wrappingLabelWithString: L("准备好再开始，当前工作不会被遮挡。"))
+        titleLabel = NSTextField(wrappingLabelWithString: "")
+        titleLabel.font = .systemFont(ofSize: 18, weight: .medium)
+        titleLabel.identifier = NSUserInterfaceItemIdentifier("reminderPanel.title")
+        let detail = NSTextField(wrappingLabelWithString: localize("开始后，所有屏幕会渐暗。你可以随时提前结束。"))
         detail.font = .systemFont(ofSize: 13)
         detail.textColor = .secondaryLabelColor
-        let start = NSButton(title: L("开始休息"), target: self, action: #selector(startBreak))
-        let postpone = NSButton(title: L("5 分钟后再提醒"), target: self, action: #selector(postponeBreak))
-        let skip = NSButton(title: L("跳过本次"), target: self, action: #selector(skipBreak))
-        [start, postpone, skip].forEach { $0.bezelStyle = .rounded }
-        let actions = NSStackView(views: [start, postpone, skip])
-        actions.orientation = .horizontal
-        actions.spacing = 8
-        let stack = NSStackView(views: [title, detail, actions])
-        stack.orientation = .vertical
-        stack.alignment = .leading
-        stack.spacing = 16
-        stack.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(stack)
+        detail.identifier = NSUserInterfaceItemIdentifier("reminderPanel.detail")
+        [titleLabel!, detail].forEach {
+            $0.preferredMaxLayoutWidth = contentWidth
+            $0.maximumNumberOfLines = 0
+            $0.lineBreakMode = .byWordWrapping
+        }
+        let start = NSButton(title: localize("开始休息"), target: self, action: #selector(startBreak))
+        let postpone = NSButton(title: ReminderPresentation.defaultSnoozeTitle(localize: localize), target: self, action: #selector(postponeBreak))
+        skipButton = NSButton(title: "", target: self, action: #selector(skipBreak))
+        start.identifier = NSUserInterfaceItemIdentifier("reminderPanel.start")
+        postpone.identifier = NSUserInterfaceItemIdentifier("reminderPanel.postpone")
+        skipButton.identifier = NSUserInterfaceItemIdentifier("reminderPanel.skip")
+        // Vertical actions keep long translations readable without compressing any choice.
+        [start, postpone, skipButton!].forEach {
+            $0.bezelStyle = .regularSquare
+            $0.isBordered = true
+            $0.cell?.wraps = true
+            $0.cell?.lineBreakMode = .byWordWrapping
+            $0.widthAnchor.constraint(equalToConstant: contentWidth).isActive = true
+        }
+        contentStack = NSStackView(views: [titleLabel, detail, start, postpone, skipButton])
+        contentStack.orientation = .vertical
+        contentStack.alignment = .leading
+        contentStack.spacing = 12
+        contentStack.translatesAutoresizingMaskIntoConstraints = false
+        content.addSubview(contentStack)
         NSLayoutConstraint.activate([
-            stack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
-            stack.trailingAnchor.constraint(equalTo: content.trailingAnchor, constant: -20),
-            stack.centerYAnchor.constraint(equalTo: content.centerYAnchor),
-            detail.widthAnchor.constraint(equalTo: stack.widthAnchor)
+            contentStack.leadingAnchor.constraint(equalTo: content.leadingAnchor, constant: 20),
+            contentStack.topAnchor.constraint(equalTo: content.topAnchor, constant: 20),
+            contentStack.widthAnchor.constraint(equalToConstant: contentWidth),
+            titleLabel.widthAnchor.constraint(equalToConstant: contentWidth),
+            detail.widthAnchor.constraint(equalToConstant: contentWidth)
         ])
-        setAccessibilityLabel(L("LumenFocus 休息提醒"))
+        refresh(restSeconds: restSeconds, workMinutes: workMinutes, now: now)
+        setAccessibilityLabel(localize("LumenFocus 休息提醒"))
+    }
+
+    func refresh(restSeconds: Int, workMinutes: Int, now: Date = Date()) {
+        // The existing work projection drives this refresh. No extra timer is needed;
+        // native text and layout change only when the displayed minute/settings change.
+        let key = "\(restSeconds)-\(workMinutes)-\(Int(now.timeIntervalSince1970 / 60))-\(TimeZone.current.identifier)"
+        guard key != lastRefresh else { return }
+        lastRefresh = key
+        titleLabel.stringValue = ReminderPresentation.restInvitationTitle(seconds: restSeconds, localize: localize)
+        skipButton.title = ReminderPresentation.skipTitle(workMinutes: workMinutes, now: now, localize: localize)
+        for button in contentStack.arrangedSubviews.compactMap({ $0 as? NSButton }) {
+            let text = NSAttributedString(string: button.title, attributes: [.font: button.font ?? NSFont.systemFont(ofSize: 13)])
+            let height = ceil(text.boundingRect(with: NSSize(width: contentWidth - 24, height: .greatestFiniteMagnitude),
+                                               options: [.usesLineFragmentOrigin, .usesFontLeading]).height)
+            if let existing = button.constraints.first(where: { $0.identifier == "reminderPanel.buttonHeight" }) {
+                existing.constant = max(32, height + 16)
+            } else {
+                let constraint = button.heightAnchor.constraint(equalToConstant: max(32, height + 16))
+                constraint.identifier = "reminderPanel.buttonHeight"
+                constraint.isActive = true
+            }
+        }
+        contentView?.layoutSubtreeIfNeeded()
+        let height = ceil(contentStack.fittingSize.height) + 40
+        // Preserve the upper edge when a live settings change reflows the message.
+        let top = frame.maxY
+        setContentSize(NSSize(width: panelWidth, height: height))
+        setFrameOrigin(NSPoint(x: frame.minX, y: top - frame.height))
+        contentView?.layoutSubtreeIfNeeded()
     }
 
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
-    @objc private func startBreak() { TimerManager.shared.triggerManualRest() }
-    @objc private func postponeBreak() { TimerManager.shared.snoozeReminder(by: 300) }
-    @objc private func skipBreak() { TimerManager.shared.skipReminder() }
+    @objc private func startBreak() { onStart() }
+    @objc private func postponeBreak() { onPostpone() }
+    @objc private func skipBreak() { onSkip() }
 }
