@@ -2,9 +2,8 @@ import Foundation
 import Combine
 
 enum AppPhase: Equatable {
+    case stopped
     case working
-    /// A non-blocking invitation. Only explicit acceptance starts a gentle-mode rest.
-    case reminderDue
     case triggeringRest
     case resting
     case paused(until: PauseEndTime)
@@ -20,15 +19,29 @@ enum PauseEndTime: Equatable {
 final class AppState: ObservableObject {
     static let shared = AppState()
 
-    @Published private(set) var currentPhase: AppPhase = .working
+    @Published private(set) var currentPhase: AppPhase = .stopped
     @Published private(set) var remainingSeconds: Int = 0
     @Published private(set) var progress: Double = 1
     @Published private(set) var nextReminderDate: Date?
     @Published private(set) var environmentDetail: String?
     @Published private(set) var todayRestCount: Int = 0
     @Published private(set) var todayWorkDuration: Int = 0
+    /// A small, session-only receipt for the last break. Never a health claim or persistent score.
+    @Published private(set) var lastRestOutcome: RestEndReason?
 
-    private init() {}
+    init() {}
+
+    func clearRestOutcome() {
+        if lastRestOutcome != nil { lastRestOutcome = nil }
+    }
+
+    func recordRestOutcome(_ reason: RestEndReason) {
+        guard currentPhase == .working, reason != .interrupted else {
+            clearRestOutcome()
+            return
+        }
+        if lastRestOutcome != reason { lastRestOutcome = reason }
+    }
 
     var isPaused: Bool {
         if case .paused = currentPhase { return true }
@@ -53,10 +66,10 @@ final class AppState: ObservableObject {
     func apply(_ snapshot: CycleSnapshot) {
         let phase: AppPhase
         switch snapshot.phase {
-        case .working, .snoozed, .stopped:
+        case .stopped:
+            phase = .stopped
+        case .working:
             phase = .working
-        case .reminderDue:
-            phase = .reminderDue
         case .resting:
             if let rest = snapshot.rest, rest.elapsed < rest.fadeInDuration {
                 phase = .triggeringRest
@@ -75,16 +88,12 @@ final class AppState: ObservableObject {
         let detail: String?
         if snapshot.environment.isAway {
             detail = L("屏幕已锁定或睡眠，提醒和工作计时已暂停。")
-        } else if snapshot.environment.reason == .videoCall || snapshot.environment.reason == .fullscreen {
-            detail = String(format: L("%@ 当前在前台，提醒暂缓；工作时长继续累计。"),
-                            snapshot.environment.detail ?? L("规则应用"))
-        } else if snapshot.environment.reason == .idle {
-            detail = L("长时间无操作时使用轻提醒，工作时长继续累计。")
         } else {
-            detail = snapshot.environment.detail
+            detail = nil
         }
         if environmentDetail != detail { environmentDetail = detail }
         if currentPhase != phase { currentPhase = phase }
+        if phase != .working { clearRestOutcome() }
     }
 
     func refreshStatistics() {

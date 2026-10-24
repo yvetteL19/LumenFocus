@@ -27,7 +27,7 @@ final class StatisticsWindowManager: NSObject, NSWindowDelegate {
     func prepareWindow() -> NSWindow {
         if let window { return window }
         let w = NSWindow(contentViewController: makeContentViewController())
-        w.title = L("统计")
+        w.title = L("休息记录")
         w.styleMask = [.titled, .closable, .miniaturizable, .resizable]
         w.contentMinSize = NSSize(width: 640, height: 500)
         let available = NSScreen.main?.visibleFrame.size ?? NSSize(width: 800, height: 800)

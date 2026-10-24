@@ -1,13 +1,16 @@
 import Foundation
 import Combine
 
-/// Connects the pure cycle engine to settings, environment, persistence, and presentation.
-/// The timer is only a heartbeat; all elapsed time and deadlines belong to CycleEngine.
+/// Connects the pure cycle engine to preferences, physical lifecycle and records.
+/// The timer is only a heartbeat; CycleEngine owns elapsed time and deadlines.
 final class TimerManager: ObservableObject {
     static let shared = TimerManager()
 
     private var timer: Timer?
     private var cancellables = Set<AnyCancellable>()
+    private var lifecycleStarted = false
+    private var shortcutPolicy = RestShortcutPolicy()
+    private let shortcutClock = SystemCycleClock()
     private let appState = AppState.shared
     private let restController = RestController.shared
     private let workspaceMonitor = WorkspaceMonitor.shared
@@ -17,71 +20,106 @@ final class TimerManager: ObservableObject {
 
     private init() {
         engine = CycleEngine(configuration: Self.configuration())
-        reloadEnvironmentSettings()
         engine.setEnvironment(workspaceMonitor.environment.value)
         setupSubscriptions()
         synchronize()
     }
 
+    /// Process startup restores the user's enabled/pause preferences. It does not enable reminders.
     func start() {
+        guard !lifecycleStarted else { return }
+        lifecycleStarted = true
+        appState.clearRestOutcome()
+        refreshConfiguration()
+        applyReminderPreferences()
+    }
+
+    /// Process shutdown flushes elapsed work but preserves the user's next-launch choice.
+    func stop() {
+        lifecycleStarted = false
+        appState.clearRestOutcome()
+        invalidateHeartbeat()
+        engine.stop()
+        synchronize()
+        StatisticsManager.shared.flush()
+    }
+
+    func startReminders() {
+        let settings = AppSettings.shared
+        settings.remindersEnabled = true
+        settings.remindersPausedUntil = nil
+        lifecycleStarted = true
+        appState.clearRestOutcome()
         refreshConfiguration()
         engine.start()
         scheduleHeartbeat()
         synchronize()
     }
 
-    func stop() {
-        timer?.invalidate()
-        timer = nil
+    func stopReminders() {
+        AppSettings.shared.remindersEnabled = false
+        AppSettings.shared.remindersPausedUntil = nil
+        appState.clearRestOutcome()
+        invalidateHeartbeat()
         engine.stop()
         synchronize()
         StatisticsManager.shared.flush()
     }
 
-    /// Pauses reminders, not work measurement. Meeting/lock restrictions stay independent.
+    /// Pausing suppresses reminders while work measurement continues.
     func pause(duration: TimeInterval? = nil) {
+        guard AppSettings.shared.remindersEnabled, engine.isStarted else { return }
         let now = Date()
         let until: Date
         if let duration {
-            until = now.addingTimeInterval(max(0, duration))
+            guard duration.isFinite, duration > 0 else { return }
+            until = now.addingTimeInterval(duration)
         } else {
             until = Calendar.current.date(byAdding: .day, value: 1,
                                           to: Calendar.current.startOfDay(for: now)) ?? now.addingTimeInterval(86400)
         }
+        guard until.timeIntervalSinceReferenceDate.isFinite else { return }
+        appState.clearRestOutcome()
+        AppSettings.shared.remindersPausedUntil = until
         engine.pause(until: until)
         synchronize()
         StatisticsManager.shared.flush()
     }
 
     func resume() {
-        if !engine.isStarted { engine.start() }
+        guard AppSettings.shared.remindersEnabled, engine.isStarted else { return }
+        appState.clearRestOutcome()
+        AppSettings.shared.remindersPausedUntil = nil
         engine.resume()
         scheduleHeartbeat()
         synchronize()
     }
 
     func toggleRestViaShortcut() {
-        if engine.snapshot.rest != nil { cancelCurrentRest() }
-        else { triggerManualRest() }
+        switch shortcutPolicy.pressed(isResting: engine.snapshot.rest != nil, at: shortcutClock.elapsed) {
+        case .cancel: cancelCurrentRest()
+        case .start: triggerManualRest()
+        case .ignore: break
+        }
     }
+
+    func restShortcutReleased() { shortcutPolicy.released() }
 
     func triggerManualRest() {
-        // Settings publishers are delivered on the next main-loop turn. An
-        // immediate click on Rest now must still use the just-selected duration.
-        if !engine.isStarted { engine.start() }
+        // A manual action must never silently enable reminders or end a pause.
+        guard AppSettings.shared.remindersEnabled, engine.isStarted,
+              engine.snapshot.pauseUntil == nil, AppSettings.shared.remindersPausedUntil == nil,
+              !engine.snapshot.environment.isAway else { return }
+        appState.clearRestOutcome()
         engine.beginRest(using: Self.configuration())
-        scheduleHeartbeat()
-        synchronize()
-        StatisticsManager.shared.flush()
-    }
-
-    func snoozeReminder(by seconds: TimeInterval) {
-        engine.snooze(by: seconds)
         synchronize()
         StatisticsManager.shared.flush()
     }
 
     func skipReminder() {
+        guard AppSettings.shared.remindersEnabled, AppSettings.shared.remindersPausedUntil == nil,
+              engine.isStarted, engine.snapshot.pauseUntil == nil else { return }
+        appState.clearRestOutcome()
         engine.skipReminder()
         synchronize()
         StatisticsManager.shared.flush()
@@ -93,8 +131,6 @@ final class TimerManager: ObservableObject {
         StatisticsManager.shared.flush()
     }
 
-    func snoozeCurrentTrigger(by seconds: TimeInterval) { snoozeReminder(by: seconds) }
-
     @available(*, deprecated, renamed: "triggerManualRest")
     func triggerTestRest() { triggerManualRest() }
 
@@ -105,7 +141,6 @@ final class TimerManager: ObservableObject {
         let settings = AppSettings.shared
         return CycleEngine.Configuration(workDuration: TimeInterval(settings.workDurationMinutes * 60),
                                          restDuration: TimeInterval(settings.restDurationSeconds),
-                                         automaticallyStartsRest: settings.reminderMode == .immersive,
                                          fadeInDuration: RestController.fadeInDuration,
                                          fadeOutDuration: RestController.fadeOutDuration)
     }
@@ -115,8 +150,32 @@ final class TimerManager: ObservableObject {
         if engine.configuration != latest { engine.configure(latest) }
     }
 
+    private func applyReminderPreferences() {
+        guard lifecycleStarted else { return }
+        let settings = AppSettings.shared
+        if !settings.remindersEnabled {
+            if settings.remindersPausedUntil != nil { settings.remindersPausedUntil = nil }
+            invalidateHeartbeat()
+            engine.stop()
+        } else {
+            let pause = settings.remindersPausedUntil.flatMap { date in
+                date.timeIntervalSinceReferenceDate.isFinite && date > Date() ? date : nil
+            }
+            if settings.remindersPausedUntil != pause { settings.remindersPausedUntil = pause }
+            if !engine.isStarted {
+                engine.start(pausedUntil: pause)
+            } else if engine.snapshot.pauseUntil != pause {
+                if let pause { engine.pause(until: pause) }
+                else { engine.resume() }
+            }
+            scheduleHeartbeat()
+        }
+        synchronize()
+        StatisticsManager.shared.flush()
+    }
+
     private func setupSubscriptions() {
-        // Handle sleep synchronously, before the main run loop is suspended.
+        // Handle sleep synchronously before the main run loop is suspended.
         workspaceMonitor.environment
             .sink { [weak self] value in
                 guard let self else { return }
@@ -127,38 +186,28 @@ final class TimerManager: ObservableObject {
             .store(in: &cancellables)
 
         let settings = AppSettings.shared
-        Publishers.Merge3(settings.$workDurationMinutes.map { _ in () },
-                          settings.$restDurationSeconds.map { _ in () },
-                          settings.$reminderMode.map { _ in () })
-            .dropFirst(3)
+        Publishers.Merge(settings.$workDurationMinutes.map { _ in () },
+                         settings.$restDurationSeconds.map { _ in () })
+            .dropFirst(2)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] in
                 guard let self else { return }
+                self.appState.clearRestOutcome()
                 self.engine.configure(Self.configuration())
                 self.synchronize()
             }
             .store(in: &cancellables)
 
-        Publishers.MergeMany([
-            settings.$enableSmartDetection.map { _ in () }.eraseToAnyPublisher(),
-            settings.$detectIdle.map { _ in () }.eraseToAnyPublisher(),
-            settings.$detectVideoCall.map { _ in () }.eraseToAnyPublisher(),
-            settings.$detectFullscreen.map { _ in () }.eraseToAnyPublisher(),
-            settings.$detectScreenLock.map { _ in () }.eraseToAnyPublisher()
-        ])
-            .dropFirst(5)
+        settings.$remindersEnabled.combineLatest(settings.$remindersPausedUntil)
+            .dropFirst()
             .receive(on: DispatchQueue.main)
-            .sink { [weak self] in self?.reloadEnvironmentSettings() }
+            .sink { [weak self] _ in self?.applyReminderPreferences() }
             .store(in: &cancellables)
     }
 
-    private func reloadEnvironmentSettings() {
-        let settings = AppSettings.shared
-        workspaceMonitor.configure(enabled: settings.enableSmartDetection,
-                                   idle: settings.detectIdle,
-                                   videoCall: settings.detectVideoCall,
-                                   fullscreen: settings.detectFullscreen,
-                                   screenLock: settings.detectScreenLock)
+    private func invalidateHeartbeat() {
+        timer?.invalidate()
+        timer = nil
     }
 
     private func scheduleHeartbeat() {
@@ -177,18 +226,22 @@ final class TimerManager: ObservableObject {
         let statistics = StatisticsManager.shared
         for event in events {
             switch event {
-            case .workRecorded(let from, let to):
-                statistics.recordWork(from: from, to: to)
-            case .restEnded(let id, let date, .completed):
-                statistics.recordCompletedRest(at: date, id: id)
-            case .restEnded, .naturalBreak:
-                break
+            case .workRecorded(let from, let to): statistics.recordWork(from: from, to: to)
+            case .restEnded(let id, let date, .completed): statistics.recordCompletedRest(at: date, id: id)
+            case .pauseExpired(let until):
+                // Expiry can be observed by wake/configure as well as heartbeat.
+                // Never clear a newer pause written before an older event was drained.
+                if AppSettings.shared.remindersPausedUntil == until { AppSettings.shared.remindersPausedUntil = nil }
+            case .restEnded, .naturalBreak: break
             }
         }
-        appState.apply(engine.snapshot)
+        let snapshot = engine.snapshot
+        appState.apply(snapshot)
         appState.refreshStatistics()
-        restController.render(engine.snapshot.rest)
+        restController.render(snapshot.rest)
         for case .restEnded(_, _, let reason) in events {
+            shortcutPolicy.restDidEnd(at: shortcutClock.elapsed)
+            appState.recordRestOutcome(reason)
             restController.publishEnd(reason)
             statistics.flush()
         }

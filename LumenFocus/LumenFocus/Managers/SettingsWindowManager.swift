@@ -5,25 +5,27 @@ final class SettingsWindowManager: NSObject, NSWindowDelegate {
     static let shared = SettingsWindowManager()
     private var window: NSWindow?
     private let frameAutosaveName: String?
-    private let makeContentViewController: () -> NSViewController
+    private let makeContentViewController: (Bool) -> NSViewController
 
-    init(contentViewControllerFactory: @escaping () -> NSViewController = { NSHostingController(rootView: SettingsView()) },
+    init(contentViewControllerFactory: (() -> NSViewController)? = nil,
          frameAutosaveName: String? = "LumenFocusSettingsWindow") {
-        self.makeContentViewController = contentViewControllerFactory
+        self.makeContentViewController = { showGeneral in
+            contentViewControllerFactory?() ?? NSHostingController(rootView: SettingsView(showGeneral: showGeneral))
+        }
         self.frameAutosaveName = frameAutosaveName
         super.init()
     }
 
-    func showSettings() {
-        let window = prepareWindow()
+    func showSettings(initiallyShowGeneral: Bool = false) {
+        let window = prepareWindow(initiallyShowGeneral: initiallyShowGeneral)
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
 
     /// Prepare without ordering or activating, also allowing isolated lifetime tests.
-    func prepareWindow() -> NSWindow {
+    func prepareWindow(initiallyShowGeneral: Bool = false) -> NSWindow {
         if let window { return window }
-        let window = NSWindow(contentViewController: makeContentViewController())
+        let window = NSWindow(contentViewController: makeContentViewController(initiallyShowGeneral))
         window.title = L("LumenFocus 设置")
         window.styleMask = [.titled, .closable, .resizable]
         window.contentMinSize = NSSize(width: 520, height: 480)

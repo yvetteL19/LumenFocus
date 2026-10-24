@@ -16,15 +16,26 @@ final class RestPresentationTests: XCTestCase {
         return descendants(of: content).first { $0.identifier?.rawValue == identifier }
     }
 
-    func testFocusIsClaimedInitiallyButNeverByAHotplugRebuild() {
-        XCTAssertTrue(RestFocusPolicy.shouldActivate(isInitialPresentation: true, hasDisplays: true))
-        XCTAssertFalse(RestFocusPolicy.shouldActivate(isInitialPresentation: false, hasDisplays: true))
-        XCTAssertFalse(RestFocusPolicy.shouldRestore(appIsActive: false, overlayWasKey: true, returnAppIsRunning: true),
-                       "A user who switched apps must keep their chosen focus")
-        XCTAssertFalse(RestFocusPolicy.shouldRestore(appIsActive: true, overlayWasKey: false, returnAppIsRunning: true),
-                       "Do not replace a settings/statistics window the user explicitly opened")
-        XCTAssertFalse(RestFocusPolicy.shouldRestore(appIsActive: true, overlayWasKey: true, returnAppIsRunning: false))
-        XCTAssertTrue(RestFocusPolicy.shouldRestore(appIsActive: true, overlayWasKey: true, returnAppIsRunning: true))
+    private func key(_ code: UInt16, characters: String, window: NSWindow,
+                     flags: NSEvent.ModifierFlags = []) -> NSEvent {
+        NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: flags, timestamp: 0,
+            windowNumber: window.windowNumber, context: nil, characters: characters,
+            charactersIgnoringModifiers: characters, isARepeat: false, keyCode: code)!
+    }
+
+    func testConstructionIsNonactivatingAndDoesNotChangeFocus() {
+        onMain {
+            let key = NSApp.keyWindow
+            let active = NSApp.isActive
+            let window = RestOverlayWindow(screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600))
+            defer { window.cleanup(); window.close() }
+            XCTAssertTrue(window.styleMask.contains(.nonactivatingPanel))
+            XCTAssertFalse(window.isVisible)
+            XCTAssertTrue(window.canBecomeKey, "The layer receives the one key used to dismiss it")
+            XCTAssertFalse(window.canBecomeMain)
+            XCTAssertTrue(NSApp.keyWindow === key)
+            XCTAssertEqual(NSApp.isActive, active)
+        }
     }
 
     func testUnorderedOverlayCoversLocalBoundsOnNegativeDisplayAndResize() {
@@ -39,54 +50,88 @@ final class RestPresentationTests: XCTestCase {
         }
     }
 
-    func testReduceMotionChangesOnlyDimmingAndLeavesBothControlsReachable() {
+    func testTextAndMaskAppearTogetherWithOneOptionalExitControl() {
         onMain {
             let window = RestOverlayWindow(screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600), reduceMotion: { true })
             defer { window.cleanup(); window.close() }
-            let end = control("rest.end", in: window) as? NSButton
-            let postpone = control("rest.postpone", in: window) as? NSButton
-            XCTAssertNotNil(end)
-            XCTAssertNotNil(postpone)
-            XCTAssertTrue(window.initialFirstResponder === end)
-            XCTAssertEqual(end?.keyEquivalent, "\u{1b}")
-            XCTAssertEqual(end?.keyEquivalentModifierMask, [])
-            XCTAssertTrue(end?.nextKeyView === postpone)
-            XCTAssertTrue(postpone?.nextKeyView === end)
+            XCTAssertEqual(control("rest.dim", in: window)?.alphaValue, 0)
+            XCTAssertEqual(control("rest.message", in: window)?.alphaValue, 0)
+            let buttons = window.contentView.map { descendants(of: $0).compactMap { $0 as? NSButton } } ?? []
+            XCTAssertEqual(buttons.count, 1)
+            XCTAssertEqual(buttons.first?.title, L("返回工作"))
+            XCTAssertTrue(window.initialFirstResponder === buttons.first)
+            let heading = control("rest.heading", in: window) as? NSTextField
+            let countdown = control("rest.countdown", in: window) as? NSTextField
+            XCTAssertGreaterThan(heading?.font?.pointSize ?? 0, countdown?.font?.pointSize ?? 0)
             var completed = false
             window.fadeIn(duration: 100) { completed = true }
-            XCTAssertTrue(completed, "Reduce Motion must not wait for an animation")
+            XCTAssertTrue(completed, "Reduce Motion does not wait for an animation")
             XCTAssertEqual(control("rest.dim", in: window)?.alphaValue, 0.85)
+            XCTAssertEqual(control("rest.message", in: window)?.alphaValue, 1)
             window.updateCountdown(seconds: -3)
-            XCTAssertEqual((control("rest.countdown", in: window) as? NSTextField)?.stringValue, "0:00")
+            XCTAssertEqual(countdown?.stringValue, "0:00")
             window.fadeOut(duration: 100)
             XCTAssertEqual(control("rest.dim", in: window)?.alphaValue, 0)
-            XCTAssertFalse(end?.isHiddenOrHasHiddenAncestor ?? true)
-            XCTAssertFalse(postpone?.isHiddenOrHasHiddenAncestor ?? true)
-            XCTAssertTrue(end?.isEnabled ?? false)
-            XCTAssertTrue(postpone?.isEnabled ?? false)
+            XCTAssertEqual(control("rest.message", in: window)?.alphaValue, 0)
         }
     }
 
-    func testEscapeAndRepeatedButtonActionsSubmitOnlyTheFirstChoice() {
+    func testAnyOrdinaryKeyIsConsumedAndDismissesEvenDuringFadeIn() {
+        let cases: [(UInt16, String)] = [(0, "a"), (49, " "), (36, "\r"), (48, "\t"), (123, "\u{f702}"), (53, "\u{1b}")]
+        let submitted = expectation(description: "each key dismisses its overlay")
+        submitted.expectedFulfillmentCount = cases.count
+        var windows: [RestOverlayWindow] = []
+        onMain {
+            for (code, characters) in cases {
+                let window = RestOverlayWindow(screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+                                               onEnd: { submitted.fulfill() })
+                windows.append(window)
+                // Dispatch at the window: a focused button must not swallow Space or Tab.
+                window.sendEvent(key(code, characters: characters, window: window))
+            }
+        }
+        wait(for: [submitted], timeout: 2)
+        onMain { windows.forEach { $0.cleanup(); $0.close() } }
+    }
+
+    func testShortcutAndRepeatedExitActionsSubmitOnlyOnce() {
         let submitted = expectation(description: "one end action")
         submitted.assertForOverFulfill = true
-        var endCount = 0
-        var postponeCount = 0
+        var calls = 0
         var window: RestOverlayWindow!
         onMain {
             window = RestOverlayWindow(screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
-                onEnd: { endCount += 1; submitted.fulfill() }, onPostpone: { postponeCount += 1 })
-            let escape = NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-                windowNumber: window.windowNumber, context: nil, characters: "\u{1b}",
-                charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53)!
-            window.keyDown(with: escape)
+                                       onEnd: { calls += 1; submitted.fulfill() })
+            XCTAssertTrue(window.performKeyEquivalent(with: key(0, characters: "a", window: window, flags: .command)))
             window.cancelOperation(nil)
-            (control("rest.postpone", in: window) as? NSButton)?.performClick(nil)
+            (control("rest.end", in: window) as? NSButton)?.performClick(nil)
         }
         wait(for: [submitted], timeout: 2)
         onMain { window.cleanup(); window.close() }
-        XCTAssertEqual(endCount, 1)
-        XCTAssertEqual(postponeCount, 0)
+        XCTAssertEqual(calls, 1)
+    }
+
+    func testReleasingShortcutModifiersDoesNotDismissButNewModifierPressDoes() {
+        let submitted = expectation(description: "new Shift key press dismisses")
+        var calls = 0
+        var window: RestOverlayWindow!
+        onMain {
+            window = RestOverlayWindow(screenFrame: CGRect(x: 0, y: 0, width: 800, height: 600),
+                                       onEnd: { calls += 1; submitted.fulfill() })
+            func flags(_ modifiers: NSEvent.ModifierFlags) -> NSEvent {
+                NSEvent.keyEvent(with: .flagsChanged, location: .zero, modifierFlags: modifiers, timestamp: 0,
+                    windowNumber: window.windowNumber, context: nil, characters: "", charactersIgnoringModifiers: "",
+                    isARepeat: false, keyCode: 56)!
+            }
+            window.sendEvent(flags([]))
+            DispatchQueue.main.async {
+                XCTAssertEqual(calls, 0, "Releasing the hotkey that opened the mask must not close it")
+                window.sendEvent(flags(.shift))
+            }
+        }
+        wait(for: [submitted], timeout: 2)
+        onMain { window.cleanup(); window.close() }
+        XCTAssertEqual(calls, 1)
     }
 
     func testRemovingWindowInvalidatesAnActionStillWaitingOnTheMainQueue() {
@@ -100,24 +145,6 @@ final class RestPresentationTests: XCTestCase {
             DispatchQueue.main.async { drained.fulfill() }
         }
         wait(for: [drained], timeout: 2)
-        XCTAssertEqual(calls, 0, "An interrupted or removed overlay cannot act on a later rest")
-    }
-
-    func testGentlePanelConstructionDoesNotActivateOrTakeTheKeyWindow() {
-        onMain {
-            let key = NSApp.keyWindow
-            let active = NSApp.isActive
-            let panel = BreakReminderPanel()
-            defer { panel.close() }
-            XCTAssertTrue(panel.styleMask.contains(.nonactivatingPanel))
-            XCTAssertFalse(panel.canBecomeKey)
-            XCTAssertFalse(panel.canBecomeMain)
-            XCTAssertFalse(panel.isVisible)
-            XCTAssertTrue(NSApp.keyWindow === key)
-            XCTAssertEqual(NSApp.isActive, active)
-            let buttons = panel.contentView.map { descendants(of: $0).compactMap { $0 as? NSButton } } ?? []
-            XCTAssertEqual(buttons.count, 3)
-            XCTAssertTrue(buttons.allSatisfy { $0.isEnabled && !$0.title.isEmpty })
-        }
+        XCTAssertEqual(calls, 0, "A removed overlay cannot act on a later rest")
     }
 }

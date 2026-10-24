@@ -17,9 +17,10 @@ final class AppSettingsTests: XCTestCase {
         super.tearDown()
     }
 
-    func testNewInstallUsesGentleRemindersAndValidDefaults() {
+    func testNewInstallEnablesAutomaticRemindersWithValidDefaults() {
         let settings = AppSettings(defaults: defaults)
-        XCTAssertEqual(settings.reminderMode, .gentle)
+        XCTAssertTrue(settings.remindersEnabled)
+        XCTAssertNil(settings.remindersPausedUntil)
         XCTAssertEqual(settings.workDurationMinutes, 40)
         XCTAssertEqual(settings.restDurationSeconds, 300)
         XCTAssertTrue(settings.validateSettings())
@@ -40,6 +41,34 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(AppSettings(defaults: defaults).restDurationSeconds, 20)
     }
 
+    func testNewInstallFollowsSystemAndLanguageChangesWaitForRelaunch() {
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertEqual(settings.appLanguage, .system)
+        XCTAssertEqual(settings.appliedLanguage, .system)
+        XCTAssertFalse(settings.hasPendingLanguageChange)
+        settings.appLanguage = .fr
+        XCTAssertEqual(defaults.stringArray(forKey: "AppleLanguages"), ["fr"])
+        XCTAssertEqual(settings.appliedLanguage, .system)
+        XCTAssertTrue(settings.hasPendingLanguageChange)
+        settings.appLanguage = .system
+        XCTAssertFalse(settings.hasPendingLanguageChange)
+        XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"])
+    }
+
+    func testEveryExplicitLanguagePersistsAndBecomesAppliedAfterRelaunch() {
+        for language in AppLanguage.allCases where language != .system {
+            let settings = AppSettings(defaults: defaults)
+            settings.appLanguage = language
+            XCTAssertEqual(defaults.stringArray(forKey: "AppleLanguages"), [language.rawValue])
+            let relaunched = AppSettings(defaults: defaults)
+            XCTAssertEqual(relaunched.appLanguage, language)
+            XCTAssertEqual(relaunched.appliedLanguage, language)
+            XCTAssertFalse(relaunched.hasPendingLanguageChange)
+        }
+        XCTAssertEqual(Set(AppLanguage.allCases.filter { $0 != .system }.map(\.rawValue)),
+                       Set(AppLocalization.supportedLanguages))
+    }
+
     func testCorruptPersistedDurationsAreBounded() {
         defaults.set(Int.max, forKey: "restDurationMinutes")
         defaults.set(-100, forKey: "workDurationMinutes")
@@ -50,52 +79,72 @@ final class AppSettingsTests: XCTestCase {
         XCTAssertEqual(AppSettings(defaults: defaults).restDurationSeconds, 20)
     }
 
-    func testAllDetectionChoicesSurviveReload() {
-        let settings = AppSettings(defaults: defaults)
-        settings.enableSmartDetection = false
-        settings.detectIdle = false
-        settings.detectVideoCall = false
-        settings.detectFullscreen = false
-        settings.detectScreenLock = false
-        let reloaded = AppSettings(defaults: defaults)
-        XCTAssertFalse(reloaded.enableSmartDetection)
-        XCTAssertFalse(reloaded.detectIdle)
-        XCTAssertFalse(reloaded.detectVideoCall)
-        XCTAssertFalse(reloaded.detectFullscreen)
-        XCTAssertFalse(reloaded.detectScreenLock)
+    func testEnabledAndFuturePauseSurviveRelaunch() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let until = now.addingTimeInterval(3600)
+        let settings = AppSettings(defaults: defaults, now: now)
+        settings.remindersPausedUntil = until
+        let reloaded = AppSettings(defaults: defaults, now: now.addingTimeInterval(600))
+        XCTAssertTrue(reloaded.remindersEnabled)
+        XCTAssertEqual(reloaded.remindersPausedUntil, until)
+        settings.remindersEnabled = false
+        let stopped = AppSettings(defaults: defaults, now: now)
+        XCTAssertFalse(stopped.remindersEnabled)
+        XCTAssertNil(stopped.remindersPausedUntil)
     }
 
-    func testResetRestoresEveryExposedPreferenceWithoutErasingOnboarding() {
+    func testExpiredAndMalformedPauseAreRemovedWithoutDisablingReminders() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        for value: Any in [now.addingTimeInterval(-1), "invalid date"] {
+            defaults.set(value, forKey: "remindersPausedUntil")
+            let settings = AppSettings(defaults: defaults, now: now)
+            XCTAssertTrue(settings.remindersEnabled)
+            XCTAssertNil(settings.remindersPausedUntil)
+            XCTAssertNil(defaults.object(forKey: "remindersPausedUntil"))
+        }
+    }
+
+    func testObsoleteModeAndDetectionPreferencesCannotChangeNewDefaults() {
+        defaults.set("gentle", forKey: "reminderMode")
+        defaults.set(true, forKey: "enableSmartDetection")
+        defaults.set(true, forKey: "detectIdle")
+        let settings = AppSettings(defaults: defaults)
+        XCTAssertTrue(settings.remindersEnabled)
+        XCTAssertNil(settings.remindersPausedUntil)
+        XCTAssertTrue(settings.validateSettings())
+    }
+
+    func testResetRestoresPreferencesWithoutEnablingStoppedRemindersOrErasingOnboarding() {
         let settings = AppSettings(defaults: defaults)
         settings.hasCompletedOnboarding = true
         settings.workDurationMinutes = 90
         settings.restDurationSeconds = 20
-        settings.reminderMode = .immersive
+        settings.remindersEnabled = false
         settings.launchAtLogin = true
-        settings.enableSmartDetection = false
-        settings.detectIdle = false
-        settings.detectVideoCall = false
-        settings.detectFullscreen = false
-        settings.detectScreenLock = false
-        settings.ambientTrack = .rain
         settings.showRemainingMinutesInMenuBar = true
         settings.appLanguage = .en
         settings.resetToDefaults()
         let reloaded = AppSettings(defaults: defaults)
         XCTAssertEqual(reloaded.workDurationMinutes, 40)
         XCTAssertEqual(reloaded.restDurationSeconds, 300)
-        XCTAssertEqual(reloaded.reminderMode, .gentle)
+        XCTAssertFalse(reloaded.remindersEnabled)
+        XCTAssertNil(reloaded.remindersPausedUntil)
         XCTAssertFalse(reloaded.launchAtLogin)
-        XCTAssertTrue(reloaded.enableSmartDetection)
-        XCTAssertTrue(reloaded.detectIdle)
-        XCTAssertTrue(reloaded.detectVideoCall)
-        XCTAssertTrue(reloaded.detectFullscreen)
-        XCTAssertTrue(reloaded.detectScreenLock)
-        XCTAssertEqual(reloaded.ambientTrack, .off)
         XCTAssertFalse(reloaded.showRemainingMinutesInMenuBar)
         XCTAssertEqual(reloaded.appLanguage, .system)
         // System language remains inherited; only this app's override is removed.
         XCTAssertNil(defaults.persistentDomain(forName: suiteName)?["AppleLanguages"])
         XCTAssertTrue(reloaded.hasCompletedOnboarding)
     }
+    func testResetPreservesTheUsersActivePause() {
+        let now = Date(timeIntervalSince1970: 1_800_000_000)
+        let until = now.addingTimeInterval(7200)
+        let settings = AppSettings(defaults: defaults, now: now)
+        settings.remindersPausedUntil = until
+        settings.resetToDefaults()
+        let reloaded = AppSettings(defaults: defaults, now: now)
+        XCTAssertTrue(reloaded.remindersEnabled)
+        XCTAssertEqual(reloaded.remindersPausedUntil, until)
+    }
+
 }

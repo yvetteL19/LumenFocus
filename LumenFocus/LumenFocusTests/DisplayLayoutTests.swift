@@ -63,22 +63,6 @@ final class DisplayLayoutTests: XCTestCase {
                                         screens: [], retaining: 1, pointer: .zero)
         XCTAssertNil(plan.primaryID)
         XCTAssertEqual(plan.removedIDs, [1])
-        XCTAssertFalse(RestFocusPolicy.shouldActivate(isInitialPresentation: true, hasDisplays: false))
     }
 
-    func testReminderStaysWithinNegativeVisibleFrameAndAvoidsReservedEdges() {
-        let visible = CGRect(x: -1850, y: -180, width: 1850, height: 1056)
-        let size = CGSize(width: 410, height: 196)
-        let origin = DisplayLayout.reminderOrigin(panelSize: size, visibleFrame: visible)
-        let panel = CGRect(origin: origin, size: size)
-        XCTAssertTrue(visible.contains(panel))
-        XCTAssertEqual(visible.maxX - panel.maxX, 16)
-        XCTAssertEqual(visible.maxY - panel.maxY, 16)
-    }
-
-    func testTinyVisibleRegionKeepsPanelOriginReachable() {
-        let visible = CGRect(x: -320, y: -200, width: 320, height: 200)
-        let origin = DisplayLayout.reminderOrigin(panelSize: CGSize(width: 410, height: 196), visibleFrame: visible)
-        XCTAssertEqual(origin, visible.origin)
-    }
 }

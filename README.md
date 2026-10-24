@@ -1,13 +1,14 @@
 # LumenFocus
 
-LumenFocus 是一款原生 macOS 菜单栏离屏休息提醒工具。无需账号，工作与休息记录保存在本机。
+LumenFocus 是一款原生 macOS 菜单栏休息提醒工具，为专注起来容易忘记时间的人而做。设定间隔后，屏幕会自动、无声地缓缓变暗，提醒你休息一下。
 
-- 默认轻提醒：到点提示，由你决定何时开始；也可主动选择沉浸渐暗。
-- 秒级休息：支持 20 秒至 15 分钟，渐暗渐亮不占用所选休息时间。
-- 清楚的控制：延后本次、暂停提醒、跳过本次和提前结束各有独立语义；每块屏幕全程保留结束与延后按钮，支持 Esc。
-- 应用避让规则：指定会议或媒体应用在前台时暂缓提醒，工作计时继续。无输入仅降低提醒强度；锁屏与睡眠暂停工作计时。
-- 清晰设置：节奏、勿扰规则、通用、数据与支持分组，支持直接调整休息时长与随时开始休息。
-- 本地统计：切换最近 7 / 30 / 90 天，查看已计时工作、完成休息和每日明细，按当前范围导出 CSV。无记录与记录为零分别显示；统计不代表实际屏幕暴露或健康效果。
+- 自动提醒是唯一主流程：到点直接渐暗，无需先发现通知或点击开始。
+- 随时返回：按任意键（包括 Esc）或点击“返回工作”即可立即退出遮罩；到达休息时长后自动渐亮。触发退出的按键不会转发或重放到其他应用。
+- 其他任务照常运行：遮罩不会暂停或控制视频、会议、下载、渲染或底层应用任务。
+- 用户决定何时提醒：可开启、停止、跳过本次，或暂停 1 / 2 / 4 小时及自定义时长。返回工作、跳过、暂停结束或手动恢复后，重新计算完整提醒间隔。
+- 不判断你正在使用什么应用：没有会议、视频、前台应用或无操作避让规则。需要一段时间不提醒时，由你主动暂停；锁屏和睡眠仍自动处理。
+- 四种界面语言：英语、简体中文、日语和法语，默认跟随系统。记录与偏好保存在本机，无需账号。
+- 历史记录是次要工具：保留最近 7 / 30 / 90 天查看与 CSV 导出，不设置完成目标、连续打卡或健康评分。
 
 ## 开发
 
@@ -29,9 +30,9 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
   ARCHS='arm64 x86_64' ONLY_ACTIVE_ARCH=NO CODE_SIGNING_ALLOWED=NO build
 ```
 
-[测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试、双语与发布元数据检查及通用 Release Archive，保留明确标注不可分发的内部测试包。
+[测试说明](LumenFocus/LumenFocusTests/README.md)介绍隔离时钟和存储的回归套件；[开发约定](CLAUDE.md)记录状态语义与模块职责。GitHub Actions 在 PR 和 main 分支执行测试、四语言资源与发布元数据检查及通用 Release Archive，保留明确标注不可分发的内部测试包。
 
-[核心流程验收](docs/refactor-validation.md)、[界面体验验收](docs/interface-validation.md)和[发布前验收](docs/release-validation.md)记录各阶段证据。[构建检查说明](docs/release-build.md)提供可重复执行的产物校验与内部打包命令。
+现行行为以 [产品契约](docs/product-contract.md) 为准，本轮结果见 [自动渐暗流程验收](docs/automatic-dimming-validation-2026-10-24.md)。[核心流程验收](docs/refactor-validation.md)、[界面体验验收](docs/interface-validation.md)、[发布前验收](docs/release-validation.md)和[前一轮体验验收](docs/ux-implementation-validation-2026-10-23.md)保留历史证据，不能作为本轮新交互的验收结论。[构建检查说明](docs/release-build.md)提供可重复执行的产物校验与内部打包命令。
 
 ## Mac App Store 首发
 
@@ -39,6 +40,6 @@ xcodebuild -project LumenFocus/LumenFocus.xcodeproj -scheme LumenFocus \
 
 ## 当前边界
 
-前台应用规则不能确认正在通话、共享屏幕或全屏播放。音频素材和 Widget target 尚未交付；界面不展示相应功能。旧版重复周报已停用，避免发送过期快照。
+现行目标和动作语义见 [产品契约](docs/product-contract.md)。旧版轻提醒、应用避让、无操作检测和完成导向的主流程已被取代。休息提示不是医学测量，也不判断用户是否真的离开屏幕。
 
-源码验证、无签名 Archive 和本机临时签名验证不等于发行完成。正式发布还需覆盖多显示器布局/热插拔、Spaces、真实锁屏睡眠、VoiceOver、最低系统版本与长时间能耗，以及 App Store 分发签名、TestFlight 和安装升级测试。
+音频、Widget 和主动周报不属于当前产品。源码验证、无签名 Archive 和本机临时签名验证不等于发行完成。正式发布还需覆盖多显示器/热插拔、Spaces、真实锁屏睡眠、任意键退出、VoiceOver、最低系统版本、长时间能耗，以及 App Store 分发签名、TestFlight 和安装升级测试。

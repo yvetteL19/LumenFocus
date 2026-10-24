@@ -52,11 +52,18 @@ class ReleaseValidationTests(unittest.TestCase):
         project.parent.mkdir()
         project.write_text("MARKETING_VERSION = 1.0; CURRENT_PROJECT_VERSION = 1;")
         self.tables = {"en": {"休息 %d 秒": "Rest %d seconds", "设置": "Settings"},
-                       "zh-Hans": {"休息 %d 秒": "休息 %d 秒", "设置": "设置"}}
+                       "zh-Hans": {"休息 %d 秒": "休息 %d 秒", "设置": "设置"},
+                       "ja": {"休息 %d 秒": "休憩 %d 秒", "设置": "設定"},
+                       "fr": {"休息 %d 秒": "Pause de %d secondes", "设置": "Réglages"}}
         for locale, table in self.tables.items():
             path = source / f"{locale}.lproj/Localizable.strings"
             path.parent.mkdir()
             path.write_text("\n".join(f'"{key}" = "{value}";' for key, value in table.items()))
+        self.plurals = {}
+        for locale in checks.LOCALES:
+            plural = checks.ROOT / checks.SOURCE / f"{locale}.lproj/Localizable.stringsdict"
+            shutil.copy2(plural, source / f"{locale}.lproj/Localizable.stringsdict")
+            self.plurals[locale] = checks.read_plist(plural)
         self.privacy = checks.read_plist(source / "PrivacyInfo.xcprivacy")
         self.entitlements = checks.read_plist(source / "LumenFocus.entitlements")
         self.app = self.root / "LumenFocus.app"
@@ -76,15 +83,55 @@ class ReleaseValidationTests(unittest.TestCase):
         write_plist(self.resources / "PrivacyInfo.xcprivacy", self.privacy)
         for locale, table in self.tables.items():
             write_plist(self.resources / f"{locale}.lproj/Localizable.strings", table)
+            write_plist(self.resources / f"{locale}.lproj/Localizable.stringsdict", self.plurals[locale])
 
     def validate(self):
-        return checks.validate_app(self.app, self.tables, self.privacy, "1.0", "1")
+        return checks.validate_app(self.app, self.tables, self.privacy, "1.0", "1", self.plurals)
 
     def test_complete_fixture_and_binary_strings_pass(self):
         checks.validate_source(self.root)
         _, report = self.validate()
         self.assertEqual(set(report["architectures"]), {"arm64", "x86_64"})
         self.assertIn("Contents/Resources/PrivacyInfo.xcprivacy", report["sha256"])
+
+    def test_xcode_utf16_xml_localizations_pass_without_changing_contents(self):
+        # Match Xcode's actual archived stringsdict: a UTF-16 BOM and XML text
+        # that still declares UTF-8. Also cover big endian and correct UTF-16 XML.
+        for codec, bom in (("utf-16-le", b"\xff\xfe"), ("utf-16-be", b"\xfe\xff")):
+            for declaration in ("UTF-8", "UTF-16"):
+                with self.subTest(codec=codec, declaration=declaration):
+                    for locale in checks.LOCALES:
+                        for filename, value in (("Localizable.strings", self.tables[locale]),
+                                                ("Localizable.stringsdict", self.plurals[locale])):
+                            xml = plistlib.dumps(value).decode("utf-8").replace('encoding="UTF-8"',
+                                                                               f'encoding="{declaration}"')
+                            (self.resources / f"{locale}.lproj" / filename).write_bytes(bom + xml.encode(codec))
+                    self.validate()
+
+    def test_utf16_plural_validation_still_rejects_missing_arguments(self):
+        path = self.resources / "en.lproj/Localizable.stringsdict"
+        value = checks.read_plist(path)
+        value["completed_break_count"]["count"]["other"] = "completed breaks"
+        path.write_bytes(plistlib.dumps(value).decode("utf-8").encode("utf-16"))
+        with self.assertRaisesRegex(checks.ValidationError, "plural branch arguments"):
+            self.validate()
+
+    def test_malformed_xml_reports_the_resource_and_returns_failure(self):
+        path = self.resources / "en.lproj/Localizable.stringsdict"
+        report = self.root / "failed-plist.json"
+        for raw in (b'<?xml version="1.0"?><plist><dict>',
+                    '<?xml version="1.0" encoding="UTF-8"?><plist><dict>'.encode("utf-16"),
+                    b"\xff\xfe<"):
+            with self.subTest(raw=raw[:20]):
+                path.write_bytes(raw)
+                error_output = io.StringIO()
+                with contextlib.redirect_stderr(error_output):
+                    result = checks.main(["--root", str(self.root), "--app", str(self.app),
+                                          "--report", str(report)])
+                self.assertEqual(result, 1)
+                self.assertIn(str(path), error_output.getvalue())
+                self.assertIn("invalid or missing plist", error_output.getvalue())
+                self.assertEqual(json.loads(report.read_text())["status"], "failed")
 
     def test_missing_app_fails_and_report_never_claims_distribution_ready(self):
         report = self.root / "failed.json"
@@ -96,7 +143,7 @@ class ReleaseValidationTests(unittest.TestCase):
     def test_version_override_must_match_the_product(self):
         self.assertEqual(checks.expected_versions(self.root, "2.1", "42"), ("2.1", "42"))
         with self.assertRaisesRegex(checks.ValidationError, "CFBundleShortVersionString"):
-            checks.validate_app(self.app, self.tables, self.privacy, "2.1", "42")
+            checks.validate_app(self.app, self.tables, self.privacy, "2.1", "42", self.plurals)
 
     def test_source_version_must_use_build_variables(self):
         path = self.root / checks.SOURCE / "Info.plist"
@@ -132,6 +179,45 @@ class ReleaseValidationTests(unittest.TestCase):
         (self.root / checks.SOURCE / "Fixture.swift").write_text('let label = L("没有翻译")')
         with self.assertRaisesRegex(checks.ValidationError, "missing literal"):
             checks.validate_source(self.root)
+
+    def test_all_four_locales_are_required_in_source_and_product(self):
+        self.assertEqual(set(checks.LOCALES), {"en", "zh-Hans", "ja", "fr"})
+        path = self.root / checks.SOURCE / "fr.lproj/Localizable.strings"
+        path.unlink()
+        with self.assertRaises(OSError):
+            checks.validate_source(self.root)
+        (self.resources / "ja.lproj/Localizable.strings").unlink()
+        with self.assertRaises(OSError):
+            self.validate()
+
+    def test_missing_plural_category_and_overlapping_key_fail(self):
+        path = self.root / checks.SOURCE / "fr.lproj/Localizable.stringsdict"
+        plural = checks.read_plist(path)
+        plural["completed_break_count"]["count"].pop("one")
+        write_plist(path, plural)
+        with self.assertRaisesRegex(checks.ValidationError, "missing plural forms"):
+            checks.validate_source(self.root)
+        write_plist(path, self.plurals["fr"])
+        strings = self.root / checks.SOURCE / "fr.lproj/Localizable.strings"
+        for locale in checks.LOCALES:
+            strings = self.root / checks.SOURCE / f"{locale}.lproj/Localizable.strings"
+            strings.write_text(strings.read_text() + '\n"completed_break_count" = "duplicate";\n')
+        with self.assertRaisesRegex(checks.ValidationError, "both .strings and .stringsdict"):
+            checks.validate_source(self.root)
+
+    def test_plural_argument_loss_and_stale_bundled_plural_fail(self):
+        path = self.root / checks.SOURCE / "en.lproj/Localizable.stringsdict"
+        plural = checks.read_plist(path)
+        plural["completed_break_count"]["count"]["other"] = "completed breaks"
+        write_plist(path, plural)
+        with self.assertRaisesRegex(checks.ValidationError, "plural branch arguments"):
+            checks.validate_source(self.root)
+        path = self.resources / "en.lproj/Localizable.stringsdict"
+        plural = checks.read_plist(path)
+        plural["completed_break_count"]["count"]["other"] = "%d old breaks"
+        write_plist(path, plural)
+        with self.assertRaisesRegex(checks.ValidationError, "Bundled plural resources differ"):
+            self.validate()
 
     def test_wrong_bundle_identity_ui_element_version_and_minimum_os_fail(self):
         for key, value in (("CFBundleIdentifier", "other.app"), ("LSUIElement", False),
@@ -170,12 +256,12 @@ class ReleaseValidationTests(unittest.TestCase):
         properties = {key: self.info[key] for key in ("CFBundleIdentifier", "CFBundleVersion", "CFBundleShortVersionString")}
         properties["ApplicationPath"] = "Applications/LumenFocus.app"
         write_plist(archive / "Info.plist", {"ArchiveVersion": 2, "ApplicationProperties": properties})
-        _, report = checks.validate_app(archive, self.tables, self.privacy, "1.0", "1")
+        _, report = checks.validate_app(archive, self.tables, self.privacy, "1.0", "1", self.plurals)
         self.assertTrue(report["archiveMetadataChecked"])
         properties["CFBundleVersion"] = "2"
         write_plist(archive / "Info.plist", {"ArchiveVersion": 2, "ApplicationProperties": properties})
         with self.assertRaisesRegex(checks.ValidationError, "Archive CFBundleVersion"):
-            checks.validate_app(archive, self.tables, self.privacy, "1.0", "1")
+            checks.validate_app(archive, self.tables, self.privacy, "1.0", "1", self.plurals)
         properties["ApplicationPath"] = "../../LumenFocus.app"
         write_plist(archive / "Info.plist", {"ArchiveVersion": 2, "ApplicationProperties": properties})
         with self.assertRaisesRegex(checks.ValidationError, "ApplicationPath"):

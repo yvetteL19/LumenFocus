@@ -11,10 +11,11 @@ import re
 import struct
 import subprocess
 import sys
+from xml.parsers.expat import ExpatError
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = Path("LumenFocus/LumenFocus")
-LOCALES = ("en", "zh-Hans")
+LOCALES = ("en", "zh-Hans", "ja", "fr")
 BUNDLE_ID = "Yvette.LumenFocus"
 MIN_OS = "13.0"
 
@@ -30,10 +31,19 @@ def require(condition, message):
 
 def read_plist(path):
     try:
-        value = plistlib.loads(path.read_bytes())
+        raw = path.read_bytes()
+        if raw.startswith((b"\xff\xfe", b"\xfe\xff")):
+            # Xcode can emit UTF-16 localization XML while preserving the source's
+            # UTF-8 declaration. The BOM identifies the bytes; normalize only the
+            # XML encoding declaration before the same strict plist parser runs.
+            text = raw.decode("utf-16")
+            text = re.sub(r'''\A(<\?xml\b[^>]*\bencoding\s*=\s*)["'][^"']+["']''',
+                          r'\1"UTF-8"', text, count=1)
+            raw = text.encode("utf-8")
+        value = plistlib.loads(raw)
         require(isinstance(value, dict), f"{path}: expected a plist dictionary")
         return value
-    except (OSError, ValueError, plistlib.InvalidFileException) as error:
+    except (OSError, ValueError, UnicodeError, ExpatError, plistlib.InvalidFileException) as error:
         raise ValidationError(f"{path}: invalid or missing plist ({error})") from error
 
 
@@ -57,6 +67,11 @@ def read_strings(path):
                 f"{path}: localization must contain string keys and values")
         return result
     text = raw.decode("utf-16" if raw.startswith((b"\xff\xfe", b"\xfe\xff")) else "utf-8-sig")
+    if text.startswith("<?xml"):
+        result = read_plist(path)
+        require(all(isinstance(k, str) and isinstance(v, str) for k, v in result.items()),
+                f"{path}: localization must contain string keys and values")
+        return result
     token = re.compile(r'\s+|/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|[=;]', re.S)
     tokens, offset = [], 0
     for match in token.finditer(text):
@@ -113,6 +128,42 @@ def validate_locales(paths):
     return tables
 
 
+def validate_plural_tables(paths, tables):
+    plurals = {locale: read_plist(path) for locale, path in paths.items()}
+    baseline = plurals["en"]
+    require(bool(baseline), "Plural resource is empty")
+    signatures = {}
+    for locale, entries in plurals.items():
+        require(entries.keys() == baseline.keys(), f"{locale}: plural keys differ")
+        require(not entries.keys() & tables[locale].keys(), f"{locale}: key occurs in both .strings and .stringsdict")
+        for key, entry in entries.items():
+            require(isinstance(entry, dict), f"{locale}: invalid plural entry {key}")
+            format_string = entry.get("NSStringLocalizedFormatKey")
+            require(isinstance(format_string, str), f"{locale}: missing plural format for {key}")
+            references = re.findall(r"%(?:(\d+)\$)?#@([A-Za-z_][A-Za-z_0-9]*)@", format_string)
+            require(bool(references), f"{locale}: no plural variable for {key}")
+            require(set(entry) == {"NSStringLocalizedFormatKey"} | {name for _, name in references},
+                    f"{locale}: unreferenced or missing plural variable for {key}")
+            expanded = format_string
+            for position, name in references:
+                rule = entry[name]
+                require(isinstance(rule, dict) and rule.get("NSStringFormatSpecTypeKey") == "NSStringPluralRuleType"
+                        and rule.get("NSStringFormatValueTypeKey") == "d", f"{locale}: unsupported plural type for {key}")
+                forms = {form: value for form, value in rule.items() if not form.startswith("NSString")}
+                required = {"one", "other"} if locale in ("en", "fr") else {"other"}
+                require(required <= forms.keys(), f"{locale}: missing plural forms for {key}")
+                require(set(forms) <= {"zero", "one", "two", "few", "many", "other"}, f"{locale}: invalid plural category for {key}")
+                for value in forms.values():
+                    require(isinstance(value, str) and bool(value.strip()) and placeholders(value) == placeholders("%d"),
+                            f"{locale}: plural branch arguments differ for {key}")
+                marker = "%" + (position + "$" if position else "")
+                expanded = expanded.replace(marker + f"#@{name}@", marker + "d")
+            signature = placeholders(expanded)
+            require(key not in signatures or signature == signatures[key], f"{locale}: plural format arguments differ for {key}")
+            signatures[key] = signature
+    return plurals
+
+
 def version_tuple(value):
     require(isinstance(value, str) and re.fullmatch(r"\d+(?:\.\d+){0,2}", value), f"Invalid version: {value!r}")
     return tuple((list(map(int, value.split("."))) + [0, 0])[:3])
@@ -136,14 +187,15 @@ def validate_source(root):
     for key, variable in (("CFBundleShortVersionString", "MARKETING_VERSION"), ("CFBundleVersion", "CURRENT_PROJECT_VERSION")):
         require(info.get(key) == f"$({variable})", f"Source {key} must use $({variable})")
     tables = validate_locales({locale: source / f"{locale}.lproj/Localizable.strings" for locale in LOCALES})
+    plurals = validate_plural_tables({locale: source / f"{locale}.lproj/Localizable.stringsdict" for locale in LOCALES}, tables)
     # Explicit literal lookups only; arbitrary runtime-built keys and visible SwiftUI text need UI review.
-    lookup = re.compile(r'\b(?:L|NSLocalizedString|LocalizedStringKey|localize)\(\s*("(?:\\.|[^"\\])*")')
+    lookup = re.compile(r'(?:\b(?:L|NSLocalizedString|LocalizedStringKey|localize)\(\s*|\blocalizedString\(\s*forKey:\s*)("(?:\\.|[^"\\])*")')
     for swift in source.rglob("*.swift"):
         for match in lookup.finditer(swift.read_text()):
             literal = match.group(1)
             if "\\(" not in literal:
                 key = decode_quoted(literal)
-                require(key in tables["en"], f"{swift}: missing literal localization key {key!r}")
+                require(key in tables["en"] or key in plurals["en"], f"{swift}: missing literal localization key {key!r}")
     icon_dir = source / "Assets.xcassets/AppIcon.appiconset"
     images = json.loads((icon_dir / "Contents.json").read_text()).get("images", [])
     require(len(images) == 10, "Expected all 10 macOS app icon representations")
@@ -164,7 +216,7 @@ def validate_source(root):
     require(entitlements == {"com.apple.security.app-sandbox": True,
                              "com.apple.security.files.user-selected.read-write": True},
             "Source entitlements changed: review the minimal App Store permission baseline")
-    return tables, privacy, entitlements
+    return tables, privacy, entitlements, plurals
 
 
 def macho_slices(path):
@@ -260,7 +312,7 @@ def app_store_preflight(app, expected_entitlements, team_id, runner=command):
             "pending": ["Xcode App Store validation and distribution provisioning", "App Store Connect processing", "TestFlight and App Review"]}
 
 
-def validate_app(path, tables, privacy, version, build):
+def validate_app(path, tables, privacy, version, build, plurals):
     app, archive = resolve_product(path)
     info = read_plist(app / "Contents/Info.plist")
     expected = {"CFBundleIdentifier": BUNDLE_ID, "CFBundlePackageType": "APPL",
@@ -281,6 +333,8 @@ def validate_app(path, tables, privacy, version, build):
     require(read_plist(resources / "PrivacyInfo.xcprivacy") == privacy, "Bundled privacy manifest differs from source")
     bundled = validate_locales({locale: resources / f"{locale}.lproj/Localizable.strings" for locale in LOCALES})
     require(bundled == tables, "Bundled localization differs from source; rebuild the product")
+    bundled_plurals = validate_plural_tables({locale: resources / f"{locale}.lproj/Localizable.stringsdict" for locale in LOCALES}, bundled)
+    require(bundled_plurals == plurals, "Bundled plural resources differ from source; rebuild the product")
     if archive is not None:
         for key in ("CFBundleIdentifier", "CFBundleShortVersionString", "CFBundleVersion"):
             require(archive.get(key) == info[key], f"Archive {key} differs from its app")
@@ -310,10 +364,10 @@ def main(argv=None):
         require(args.app is not None or args.source_only, "Specify --app (.app or .xcarchive), or explicitly choose --source-only")
         require(not (args.source_only and (args.app or args.app_store_ready)), "--source-only cannot be combined with product checks")
         version, build = expected_versions(args.root, args.version, args.build)
-        tables, privacy, entitlements = validate_source(args.root)
-        report["source"] = {"localizationKeys": len(tables["en"]), "locales": list(LOCALES), "status": "passed"}
+        tables, privacy, entitlements, plurals = validate_source(args.root)
+        report["source"] = {"localizationKeys": len(tables["en"]) + len(plurals["en"]), "locales": list(LOCALES), "status": "passed"}
         if args.app:
-            app, report["product"] = validate_app(args.app, tables, privacy, version, build)
+            app, report["product"] = validate_app(args.app, tables, privacy, version, build, plurals)
             if args.app_store_ready:
                 report["appStorePreflight"] = app_store_preflight(app, entitlements, args.team_id)
         report["status"] = "passed"
@@ -325,7 +379,7 @@ def main(argv=None):
     if report["errors"]:
         print("FAIL: " + "; ".join(report["errors"]), file=sys.stderr)
         return 1
-    print(f"PASS: {report['mode']}; {report['source']['localizationKeys']} bilingual keys. Distribution approval remains pending.")
+    print(f"PASS: {report['mode']}; {report['source']['localizationKeys']} keys across {len(LOCALES)} languages. Distribution approval remains pending.")
     return 0
 
 
