@@ -35,21 +35,4 @@ enum DisplayLayout {
         CGRect(origin: .zero, size: screenFrame.size)
     }
 
-    static func reminderOrigin(panelSize: CGSize, visibleFrame: CGRect, margin: CGFloat = 16) -> CGPoint {
-        // On an unusually small visible region, keep the top/left edge reachable
-        // instead of placing it at a negative offset outside that display.
-        CGPoint(x: max(visibleFrame.minX, visibleFrame.maxX - panelSize.width - margin),
-                y: max(visibleFrame.minY, visibleFrame.maxY - panelSize.height - margin))
-    }
-}
-
-/// Rebuilding displays must not reclaim focus after the user changes apps.
-enum RestFocusPolicy {
-    static func shouldActivate(isInitialPresentation: Bool, hasDisplays: Bool) -> Bool {
-        isInitialPresentation && hasDisplays
-    }
-
-    static func shouldRestore(appIsActive: Bool, overlayWasKey: Bool, returnAppIsRunning: Bool) -> Bool {
-        appIsActive && overlayWasKey && returnAppIsRunning
-    }
 }

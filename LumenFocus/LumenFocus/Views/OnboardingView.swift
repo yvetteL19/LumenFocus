@@ -8,29 +8,24 @@ struct OnboardingView: View {
     @State private var launchError = false
     private let isInitialSetup = !AppSettings.shared.hasCompletedOnboarding
 
-    private var workBinding: Binding<Double> {
-        Binding(get: { Double(draft.workMinutes) }, set: { draft.workMinutes = Int($0) })
-    }
-
     var body: some View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 24) {
                     VStack(alignment: .leading, spacing: 10) {
-                        Text("给工作留一点离屏时间")
+                        Text("让屏幕提醒你休息一下")
                             .font(.system(size: 27, weight: .medium))
+                        Text("到点后，屏幕会缓缓变暗，不发出声音。可以休息、伸展，或喝点水。")
+                            .font(.callout)
+                            .foregroundColor(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     GroupBox {
                         DisclosureGroup(isExpanded: $isEditingRhythm) {
                             VStack(alignment: .leading, spacing: 16) {
-                                LabeledContent("提醒间隔", value: restDurationText(draft.workMinutes * 60))
-                                Slider(value: workBinding,
-                                       in: Double(AppSettings.workDurationRange.lowerBound)...Double(AppSettings.workDurationRange.upperBound), step: 5)
-                                    .tint(Color.LumenFocus.ink)
-                                    .accessibilityLabel(Text("提醒间隔"))
-                                    .accessibilityValue(Text(verbatim: restDurationText(draft.workMinutes * 60)))
-                                BreakDurationPicker(seconds: $draft.restSeconds)
+                                ReminderDurationPicker(workMinutes: $draft.workMinutes)
+                                ReminderDurationPicker(restSeconds: $draft.restSeconds)
                             }
                             .padding(.top, 16)
                         } label: {
@@ -45,14 +40,7 @@ struct OnboardingView: View {
                     }
 
                     VStack(alignment: .leading, spacing: 12) {
-                        Picker("提醒方式", selection: $draft.reminderMode) {
-                            ForEach(ReminderMode.allCases) { mode in
-                                Text(verbatim: mode.displayName).tag(mode)
-                            }
-                        }
-                        Text(verbatim: L(draft.reminderMode == .gentle
-                            ? "到点显示轻提醒。你点击开始后，才会进入离屏休息。"
-                            : "到点自动渐暗所有屏幕。休息全程可结束或延后。"))
+                        Text("按任意键可立即结束，休息时长结束后屏幕自动变亮。")
                             .font(.callout)
                             .foregroundColor(.secondary)
                             .fixedSize(horizontal: false, vertical: true)
@@ -65,7 +53,7 @@ struct OnboardingView: View {
                             } icon: { Image(systemName: "play.circle") }
                         }
                         .disabled(isPlayingDemo)
-                        .help(L("预览持续 10 秒，仅在当前屏幕显示；按 Esc 或点击可结束。"))
+                        .help(L("预览持续 10 秒，仅在当前屏幕显示；按任意键可结束。"))
                     }
 
                     Toggle("登录 Mac 时启动", isOn: $draft.launchAtLogin)

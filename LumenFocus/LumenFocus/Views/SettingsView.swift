@@ -14,15 +14,17 @@ struct SettingsView: View {
     @State private var systemErrorTitle = ""
 
     private enum SettingsTab: Hashable {
-        case rhythm, avoidance, general
+        case rhythm, general
     }
 
     init(showGeneral: Bool = false) {
         _selectedTab = State(initialValue: showGeneral || ProcessInfo.processInfo.arguments.contains("--show-settings-general") ? .general : .rhythm)
     }
 
-    private var workBinding: Binding<Double> {
-        Binding(get: { Double(settings.workDurationMinutes) }, set: { settings.workDurationMinutes = Int($0) })
+    private var remindersBinding: Binding<Bool> {
+        Binding(get: { settings.remindersEnabled }, set: {
+            if $0 { TimerManager.shared.startReminders() } else { TimerManager.shared.stopReminders() }
+        })
     }
 
     private var launchBinding: Binding<Bool> {
@@ -32,11 +34,8 @@ struct SettingsView: View {
     var body: some View {
         TabView(selection: $selectedTab) {
             rhythmTab
-                .tabItem { Label("提醒", systemImage: "timer") }
+                .tabItem { Label("节奏", systemImage: "timer") }
                 .tag(SettingsTab.rhythm)
-            avoidanceTab
-                .tabItem { Label("提醒避让", systemImage: "moon") }
-                .tag(SettingsTab.avoidance)
             generalTab
                 .tabItem { Label("通用", systemImage: "gearshape") }
                 .tag(SettingsTab.general)
@@ -67,16 +66,8 @@ struct SettingsView: View {
     private var rhythmTab: some View {
         Form {
             Section {
-                VStack(alignment: .leading, spacing: 10) {
-                    LabeledContent("提醒间隔", value: restDurationText(settings.workDurationMinutes * 60))
-                        .monospacedDigit()
-                    Slider(value: workBinding,
-                           in: Double(AppSettings.workDurationRange.lowerBound)...Double(AppSettings.workDurationRange.upperBound), step: 5)
-                        .tint(Color.LumenFocus.ink)
-                        .accessibilityLabel(Text("提醒间隔"))
-                        .accessibilityValue(Text(verbatim: restDurationText(settings.workDurationMinutes * 60)))
-                }
-                BreakDurationPicker(seconds: $settings.restDurationSeconds)
+                ReminderDurationPicker(workMinutes: $settings.workDurationMinutes)
+                ReminderDurationPicker(restSeconds: $settings.restDurationSeconds)
             } header: {
                 Text("提醒节奏")
             } footer: {
@@ -84,12 +75,29 @@ struct SettingsView: View {
             }
 
             Section {
-                Picker("提醒方式", selection: $settings.reminderMode) {
-                    ForEach(ReminderMode.allCases) { mode in
-                        Text(verbatim: mode.displayName).tag(mode)
+                Toggle("自动提醒", isOn: remindersBinding)
+                if settings.remindersEnabled {
+                    if appState.isPaused {
+                        if let until = settings.remindersPausedUntil {
+                            Text(verbatim: String(format: L("暂停至 %@"), ReminderPresentation.clockText(until)))
+                                .foregroundColor(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                        Button("恢复提醒") { TimerManager.shared.resume() }
+                    } else if appState.currentPhase == .working {
+                        Button("休息一下") { TimerManager.shared.triggerManualRest() }
+                    } else if appState.isResting {
+                        Button("返回工作") { TimerManager.shared.cancelCurrentRest() }
                     }
+                    ReminderPauseMenu(titleKey: appState.isPaused ? "调整暂停时间" : "暂停提醒")
                 }
-                .pickerStyle(.menu)
+            } footer: {
+                helpText(!settings.remindersEnabled
+                    ? "已停止。开启后会按设定间隔提醒。"
+                    : (appState.isPaused ? "暂停结束后重新计时。" : "到点自动渐暗，按任意键即可结束。"))
+            }
+
+            Section {
                 Button {
                     isPlayingPreview = true
                     OnboardingDemo.shared.play(totalDuration: 10) { isPlayingPreview = false }
@@ -97,76 +105,11 @@ struct SettingsView: View {
                     Text(verbatim: L(isPlayingPreview ? "演示中…" : "预览渐暗"))
                 }
                 .disabled(isPlayingPreview || appState.isResting)
-                .help(L("预览持续 10 秒，仅在当前屏幕显示；按 Esc 或点击可结束。"))
+                .help(L("预览持续 10 秒，仅在当前屏幕显示；按任意键可结束。"))
             } header: {
-                Text("如何开始休息")
+                Text("休息一下")
             } footer: {
-                helpText(settings.reminderMode == .gentle
-                    ? "到点显示轻提醒。你点击开始后，才会进入离屏休息。"
-                    : "到点自动渐暗所有屏幕。休息全程可结束或延后。")
-            }
-
-            Section {
-                HStack(spacing: 16) {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text("离屏休息")
-                            .fontWeight(.medium)
-                        Text(verbatim: restDurationText(settings.restDurationSeconds))
-                            .foregroundColor(.secondary)
-                    }
-                    Spacer(minLength: 12)
-                    Button {
-                        TimerManager.shared.triggerManualRest()
-                    } label: {
-                        Text(verbatim: L(appState.isResting ? "正在休息" : (appState.isPaused ? "休息并恢复提醒" : "现在休息")))
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(Color.LumenFocus.ink)
-                    .disabled(appState.isResting)
-                }
-            } footer: {
-                helpText(appState.isPaused
-                    ? "开始休息会结束暂停，之后按当前节奏提醒。"
-                    : "直接开始当前设定的离屏休息。可随时结束或延后。")
-            }
-        }
-        .formStyle(.grouped)
-    }
-
-    private var avoidanceTab: some View {
-        Form {
-            Section {
-                Toggle("启用提醒规则", isOn: $settings.enableSmartDetection)
-            } footer: {
-                helpText("锁屏或睡眠时自动暂停工作计时，不受提醒规则影响。")
-            }
-
-            Section {
-                Toggle("会议应用", isOn: $settings.detectVideoCall)
-                    .disabled(!settings.enableSmartDetection)
-                Toggle("演示与媒体应用", isOn: $settings.detectFullscreen)
-                    .disabled(!settings.enableSmartDetection)
-                DisclosureGroup("查看包含的应用") {
-                    VStack(alignment: .leading, spacing: 12) {
-                        supportedApps("会议应用", names: ForegroundAppRuleResolver.meetingApps.map(\.name))
-                        supportedApps("演示与媒体应用", names: ForegroundAppRuleResolver.presentationApps.map(\.name))
-                        helpText("根据当前在前台的应用暂缓提醒，不识别真实通话、共享或全屏状态。")
-                    }
-                    .padding(.vertical, 8)
-                }
-            } header: {
-                Text("前台应用规则")
-            } footer: {
-                helpText("这些应用在前台时暂缓提醒，工作计时继续。离开后会先留出缓冲。")
-            }
-
-            if settings.reminderMode == .immersive {
-                Section {
-                    Toggle("1 分钟无操作时，改用轻提醒", isOn: $settings.detectIdle)
-                        .disabled(!settings.enableSmartDetection)
-                } footer: {
-                    helpText("无操作时不自动渐暗屏幕，工作计时继续。")
-                }
+                helpText("按任意键可立即结束，休息时长结束后屏幕自动变亮。")
             }
         }
         .formStyle(.grouped)
@@ -223,16 +166,6 @@ struct SettingsView: View {
             }
         }
         .formStyle(.grouped)
-    }
-
-    private func supportedApps(_ title: String, names: [String]) -> some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(verbatim: L(title)).fontWeight(.medium)
-            Text(verbatim: names.joined(separator: " · "))
-                .foregroundColor(.secondary)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     /// Footer and explanatory copy must remain readable when the window is narrowed

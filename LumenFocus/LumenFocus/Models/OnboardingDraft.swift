@@ -4,13 +4,11 @@ import Foundation
 struct OnboardingDraft: Equatable {
     var workMinutes: Int
     var restSeconds: Int
-    var reminderMode: ReminderMode
     var launchAtLogin: Bool
 
     init(settings: AppSettings, launchAtLogin: Bool) {
         workMinutes = settings.workDurationMinutes
         restSeconds = settings.restDurationSeconds
-        reminderMode = settings.reminderMode
         self.launchAtLogin = launchAtLogin
     }
 
@@ -26,8 +24,9 @@ struct OnboardingDraft: Equatable {
         }
         settings.workDurationMinutes = workMinutes
         settings.restDurationSeconds = restSeconds
-        settings.reminderMode = reminderMode
         settings.launchAtLogin = readLaunchAtLogin()
+        settings.remindersPausedUntil = nil
+        settings.remindersEnabled = true
         settings.hasCompletedOnboarding = true
         return true
     }

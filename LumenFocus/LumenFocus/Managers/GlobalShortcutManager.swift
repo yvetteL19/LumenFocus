@@ -38,25 +38,29 @@ final class GlobalShortcutManager: ObservableObject {
         let keyCode = UInt32(kVK_ANSI_E)
         let modifiers = UInt32(cmdKey | optionKey)
 
-        var eventType = EventTypeSpec(
-            eventClass: OSType(kEventClassKeyboard),
-            eventKind: UInt32(kEventHotKeyPressed)
-        )
+        let eventTypes = [UInt32(kEventHotKeyPressed), UInt32(kEventHotKeyReleased)].map {
+            EventTypeSpec(eventClass: OSType(kEventClassKeyboard), eventKind: $0)
+        }
 
-        let installStatus = InstallEventHandler(
+        let installStatus = eventTypes.withUnsafeBufferPointer { types in InstallEventHandler(
             GetApplicationEventTarget(),
-            { (_, _, _) -> OSStatus in
+            { (_, event, _) -> OSStatus in
+                guard let event else { return OSStatus(eventNotHandledErr) }
+                let released = GetEventKind(event) == UInt32(kEventHotKeyReleased)
                 DispatchQueue.main.async {
-                    Log.system.info("Global shortcut ⌘⌥E fired")
-                    TimerManager.shared.toggleRestViaShortcut()
+                    if released {
+                        TimerManager.shared.restShortcutReleased()
+                    } else {
+                        TimerManager.shared.toggleRestViaShortcut()
+                    }
                 }
                 return noErr
             },
-            1,
-            &eventType,
+            types.count,
+            types.baseAddress,
             nil,
             &handlerRef
-        )
+        ) }
         guard installStatus == noErr else {
             Log.system.error("InstallEventHandler failed: \(installStatus)")
             registrationError = L("快捷键不可用，请使用菜单栏或休息界面的结束按钮。")

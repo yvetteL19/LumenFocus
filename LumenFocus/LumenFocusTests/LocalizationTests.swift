@@ -21,28 +21,28 @@ final class LocalizationTests: XCTestCase {
     func testEnglishZeroOneAndManyUseCorrectPluralForms() throws {
         let localized = try bundle("en")
         let locale = Locale(identifier: "en_US")
-        XCTAssertEqual(localizedCompletedBreaksToday(0, bundle: localized, locale: locale), "0 completed breaks today")
-        XCTAssertEqual(localizedCompletedBreaksToday(1, bundle: localized, locale: locale), "1 completed break today")
-        XCTAssertEqual(localizedCompletedBreaksToday(2, bundle: localized, locale: locale), "2 completed breaks today")
+        XCTAssertEqual(localizedCompletedBreaksToday(0, bundle: localized, locale: locale), "0 timed endings today")
+        XCTAssertEqual(localizedCompletedBreaksToday(1, bundle: localized, locale: locale), "1 timed ending today")
+        XCTAssertEqual(localizedCompletedBreaksToday(2, bundle: localized, locale: locale), "2 timed endings today")
         XCTAssertEqual(localizedRecordAccessibility(dayLabel: "Today", count: 1, workDuration: "5 min",
                                                     bundle: localized, locale: locale),
-                       "Today, 1 completed break, 5 min timed work")
+                       "Today, 1 timed ending, 5 min timed work")
     }
 
     func testFrenchPluralSelectionUsesAppliedLanguageNotTheTestProcessLanguage() throws {
         let localized = try bundle("fr")
         // French uses the singular category for zero and one, even with a US region.
         let locale = AppLocalization.formattingLocale(languageIdentifier: "fr", regionLocale: Locale(identifier: "en_US"))
-        XCTAssertEqual(localizedCompletedBreaks(0, bundle: localized, locale: locale), "0 pause terminée")
-        XCTAssertEqual(localizedCompletedBreaks(1, bundle: localized, locale: locale), "1 pause terminée")
-        XCTAssertEqual(localizedCompletedBreaks(2, bundle: localized, locale: locale), "2 pauses terminées")
+        XCTAssertEqual(localizedCompletedBreaks(0, bundle: localized, locale: locale), "0 fin automatique")
+        XCTAssertEqual(localizedCompletedBreaks(1, bundle: localized, locale: locale), "1 fin automatique")
+        XCTAssertEqual(localizedCompletedBreaks(2, bundle: localized, locale: locale), "2 fins automatiques")
     }
 
     func testChineseAndJapaneseCountSentencesAreLocalized() throws {
         XCTAssertEqual(localizedCompletedBreaksToday(1, bundle: try bundle("zh-Hans"), locale: Locale(identifier: "zh-Hans")),
-                       "今日完成 1 次休息")
+                       "今日定时结束 1 次")
         XCTAssertEqual(localizedCompletedBreaksToday(1, bundle: try bundle("ja"), locale: Locale(identifier: "ja")),
-                       "今日の休憩完了 1 回")
+                       "今日の自動終了 1 回")
     }
 
     func testLanguageOverridePreservesRegionAndHourCycle() {

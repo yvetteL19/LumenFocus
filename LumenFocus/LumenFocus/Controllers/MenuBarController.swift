@@ -12,7 +12,7 @@ final class MenuBarController: NSObject {
         NSHostingController(rootView: MenuBarPopoverView(onClose: { [weak self] in self?.popover?.performClose(nil) }))
     }
     private enum IconState: Equatable {
-        case paused, due, progress(Double)
+        case stopped, paused, progress(Double)
     }
     private var renderedIcon: IconState?
     private let appState = AppState.shared
@@ -55,14 +55,14 @@ final class MenuBarController: NSObject {
         let icon: IconState
         switch appState.currentPhase {
         case .paused, .autoSuspended: icon = .paused
-        case .reminderDue: icon = .due
+        case .stopped: icon = .stopped
         default: icon = .progress(appState.progress)
         }
         if renderedIcon != icon {
             switch icon {
             case .paused: button.image = IconManager.shared.pausedIcon()
-            case .due:
-                button.image = NSImage(systemSymbolName: "eye", accessibilityDescription: L("休息提醒"))
+            case .stopped:
+                button.image = NSImage(systemSymbolName: "stop.circle", accessibilityDescription: L("提醒已停止"))
                 button.image?.isTemplate = true
             case .progress(let progress): button.image = IconManager.shared.progressIcon(progress)
             }
@@ -80,10 +80,9 @@ final class MenuBarController: NSObject {
 
     private var tooltip: String {
         switch appState.currentPhase {
+        case .stopped: return "LumenFocus · " + L("提醒已停止")
         case .working:
-            if let detail = appState.environmentDetail, !detail.isEmpty { return "LumenFocus · " + detail }
             return appState.nextReminderDate.map { String(format: L("LumenFocus · 下次提醒 %@"), reminderClockText($0)) } ?? "LumenFocus"
-        case .reminderDue: return L("LumenFocus · 可以开始休息了")
         case .triggeringRest, .resting: return String(format: L("LumenFocus · 剩余休息 %@"), appState.formattedRemainingTime)
         case .paused(let until):
             switch until {
@@ -130,45 +129,28 @@ final class MenuBarController: NSObject {
             result.isEnabled = false
             menu.addItem(result)
         }
-        if appState.currentPhase == .reminderDue {
-            let duration = item(ReminderPresentation.restInvitationTitle(seconds: settings.restDurationSeconds), action: nil)
-            duration.isEnabled = false
-            menu.addItem(duration)
-            let effect = item(L("开始后，所有屏幕会渐暗。你可以随时提前结束。"), action: nil)
-            effect.isEnabled = false
-            menu.addItem(effect)
-        }
         menu.addItem(.separator())
         switch appState.currentPhase {
-        case .working, .reminderDue:
+        case .stopped:
+            menu.addItem(item(L("开启提醒"), action: #selector(startReminders)))
+        case .working:
             menu.addItem(item(presentation.primaryTitle(), action: #selector(startRest)))
-            let delay = item(L(appState.currentPhase == .reminderDue ? "稍后再提醒" : "延后本次"), action: nil)
-            let submenu = NSMenu()
-            for minutes in ReminderPresentation.delayChoices {
-                let title = presentation.delayOptionTitle(minutes: minutes)
-                let entry = item(title, action: #selector(delayReminder(_:)))
-                entry.tag = minutes
-                submenu.addItem(entry)
-            }
-            delay.submenu = submenu
-            menu.addItem(delay)
-            if appState.currentPhase == .reminderDue {
-                menu.addItem(item(ReminderPresentation.skipTitle(workMinutes: settings.workDurationMinutes), action: #selector(skipReminder)))
-            }
+            menu.addItem(item(ReminderPresentation.skipTitle(workMinutes: settings.workDurationMinutes), action: #selector(skipReminder)))
             addPauseMenu(to: menu)
         case .paused:
             menu.addItem(item(L("恢复提醒"), action: #selector(resume)))
-            menu.addItem(item(L("休息并恢复提醒"), action: #selector(startRest)))
             addPauseMenu(to: menu, title: L("调整暂停时间"))
         case .autoSuspended:
-            menu.addItem(item(presentation.primaryTitle(), action: #selector(startRest)))
             addPauseMenu(to: menu)
         case .triggeringRest, .resting:
-            menu.addItem(item(L("提前结束"), action: #selector(endRest)))
-            menu.addItem(item(ReminderPresentation.defaultSnoozeTitle(), action: #selector(postponeRest)))
+            menu.addItem(item(L("返回工作"), action: #selector(endRest)))
+            addPauseMenu(to: menu)
+        }
+        if appState.currentPhase != .stopped {
+            menu.addItem(item(L("停止提醒"), action: #selector(stopReminders)))
         }
         menu.addItem(.separator())
-        menu.addItem(item(L("详细统计"), action: #selector(openStatistics)))
+        menu.addItem(item(L("记录"), action: #selector(openStatistics)))
         menu.addItem(item(L("设置…"), action: #selector(openSettings), key: ","))
         menu.addItem(item(L("重新设置休息节奏…"), action: #selector(showOnboarding)))
         menu.addItem(.separator())
@@ -187,18 +169,19 @@ final class MenuBarController: NSObject {
             entry.tag = minutes
             submenu.addItem(entry)
         }
-        submenu.addItem(item(L("至今日结束"), action: #selector(pauseToday)))
+        submenu.addItem(.separator())
+        submenu.addItem(item(L("自定义暂停…"), action: #selector(customPause)))
         pause.submenu = submenu
         menu.addItem(pause)
     }
 
     @objc private func startRest() { TimerManager.shared.triggerManualRest() }
     @objc private func endRest() { RestController.shared.cancelRest() }
-    @objc private func postponeRest() { RestController.shared.snooze(by: ReminderPresentation.defaultSnoozeSeconds) }
-    @objc private func delayReminder(_ sender: NSMenuItem) { TimerManager.shared.snoozeReminder(by: TimeInterval(sender.tag * 60)) }
     @objc private func skipReminder() { TimerManager.shared.skipReminder() }
     @objc private func pauseFor(_ sender: NSMenuItem) { TimerManager.shared.pause(duration: TimeInterval(sender.tag * 60)) }
-    @objc private func pauseToday() { TimerManager.shared.pause(duration: nil) }
+    @objc private func customPause() { ReminderPauseWindowManager.shared.show() }
+    @objc private func startReminders() { TimerManager.shared.startReminders() }
+    @objc private func stopReminders() { TimerManager.shared.stopReminders() }
     @objc private func resume() { TimerManager.shared.resume() }
     @objc private func openStatistics() { StatisticsWindowManager.shared.show() }
     @objc private func openSettings() { SettingsWindowManager.shared.showSettings() }

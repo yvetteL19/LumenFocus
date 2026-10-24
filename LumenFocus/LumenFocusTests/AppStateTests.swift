@@ -9,29 +9,38 @@ final class AppStateTests: XCTestCase {
                       environment: .available, rest: nil)
     }
 
-    func testCompletionReceiptSurvivesHeartbeatButNotTheNextReminder() {
+    func testStoppedProjectionIsExplicitAndCannotLookLikeWorking() {
+        let state = AppState()
+        XCTAssertEqual(state.currentPhase, .stopped)
+        state.apply(snapshot(.stopped))
+        XCTAssertEqual(state.currentPhase, .stopped)
+        XCTAssertFalse(state.isWorking)
+        XCTAssertFalse(state.isResting)
+    }
+
+    func testCompletionReceiptSurvivesHeartbeatButNotTheNextRest() {
         let state = AppState()
         state.apply(snapshot(.working))
         state.recordRestOutcome(.completed)
         state.apply(snapshot(.working, remaining: 599))
         XCTAssertEqual(state.lastRestOutcome, .completed)
-        state.apply(snapshot(.reminderDue, remaining: 0))
-        XCTAssertNil(state.lastRestOutcome, "An old completion must not describe the new invitation")
+        state.apply(snapshot(.resting, remaining: 20))
+        XCTAssertNil(state.lastRestOutcome, "An old completion must not describe the new rest")
     }
 
-    func testEarlyEndAndPostponeRemainDistinctFromCompletion() {
+    func testEarlyEndRemainsDistinctFromCompletion() {
         let state = AppState()
+        state.apply(snapshot(.working))
         state.recordRestOutcome(.userCancelled)
         XCTAssertEqual(state.lastRestOutcome, .userCancelled)
-        state.recordRestOutcome(.snoozed(seconds: 300))
-        XCTAssertEqual(state.lastRestOutcome, .snoozed(seconds: 300))
         state.recordRestOutcome(.interrupted)
         XCTAssertNil(state.lastRestOutcome, "Sleep or interruption must not look like a completed break")
     }
 
     func testPauseAndSuspensionCannotRetainOrCreateACompletionReceipt() {
-        for phase in [CyclePhase.paused, .suspended, .resting] {
+        for phase in [CyclePhase.stopped, .paused, .suspended, .resting] {
             let state = AppState()
+            state.apply(snapshot(.working))
             state.recordRestOutcome(.completed)
             state.apply(snapshot(phase))
             XCTAssertNil(state.lastRestOutcome)

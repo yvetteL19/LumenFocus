@@ -13,9 +13,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>%d pauses terminées</string>
+			<string>%d fins automatiques</string>
 			<key>one</key>
-			<string>%d pause terminée</string>
+			<string>%d fin automatique</string>
 		</dict>
 	</dict>
 	<key>completed_breaks_today</key>
@@ -29,9 +29,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>%d pauses terminées aujourd’hui</string>
+			<string>%d fins automatiques aujourd’hui</string>
 			<key>one</key>
-			<string>%d pause terminée aujourd’hui</string>
+			<string>%d fin automatique aujourd’hui</string>
 		</dict>
 	</dict>
 	<key>daily_record_accessibility</key>
@@ -45,9 +45,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>%d pauses terminées</string>
+			<string>%d fins automatiques</string>
 			<key>one</key>
-			<string>%d pause terminée</string>
+			<string>%d fin automatique</string>
 		</dict>
 	</dict>
 </dict>

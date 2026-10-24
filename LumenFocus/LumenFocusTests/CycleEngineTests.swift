@@ -12,44 +12,8 @@ final class TestCycleClock: CycleClock {
 }
 
 final class CycleEngineTests: XCTestCase {
-    func testManualBreakFromPauseResumesCadenceAfterCompletion() {
-        let clock = TestCycleClock()
-        let engine = makeEngine(clock)
-        engine.start()
-        engine.pause(until: clock.now.addingTimeInterval(3600))
-        clock.advance(120)
-
-        engine.beginRest()
-        XCTAssertEqual(engine.snapshot.phase, .resting)
-        XCTAssertNil(engine.snapshot.pauseUntil)
-        clock.advance(23)
-        engine.tick()
-
-        XCTAssertEqual(engine.snapshot.phase, .working)
-        XCTAssertEqual(engine.snapshot.remaining, 2400)
-        XCTAssertEqual(completedRests(engine.drainEvents()).count, 1)
-        clock.advance(2400)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue, "Starting a break explicitly ends the old pause")
-    }
-
-    func testImmediateRestUsesNewSettingsBeforePreferenceObserverDelivery() {
-        let clock = TestCycleClock()
-        let engine = CycleEngine(clock: clock, configuration: .init(workDuration: 2400, restDuration: 300))
-        engine.start()
-        engine.beginRest(using: .init(workDuration: 1200, restDuration: 20))
-        XCTAssertEqual(engine.snapshot.rest?.duration, 20)
-        clock.advance(23)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .working)
-        XCTAssertEqual(engine.snapshot.remaining, 1200)
-        XCTAssertEqual(completedRests(engine.drainEvents()).count, 1)
-    }
-
-    private func makeEngine(_ clock: TestCycleClock, work: TimeInterval = 2400,
-                            immersive: Bool = false) -> CycleEngine {
-        CycleEngine(clock: clock, configuration: .init(workDuration: work, restDuration: 20,
-                                                        automaticallyStartsRest: immersive))
+    private func makeEngine(_ clock: TestCycleClock, work: TimeInterval = 2400) -> CycleEngine {
+        CycleEngine(clock: clock, configuration: .init(workDuration: work, restDuration: 20))
     }
 
     private func recordedWork(_ events: [CycleEvent]) -> TimeInterval {
@@ -66,7 +30,18 @@ final class CycleEngineTests: XCTestCase {
         }
     }
 
-    func testDelayedHeartbeatUsesDeadlineAndCalendarClockChangesDoNotChangeDuration() {
+    func testDueTimeAlwaysStartsRestWithoutAnInvitation() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock, work: 60)
+        engine.start()
+        clock.advance(60)
+        engine.tick()
+        XCTAssertEqual(engine.snapshot.phase, .resting)
+        XCTAssertEqual(engine.snapshot.rest?.elapsed, 0)
+        XCTAssertEqual(recordedWork(engine.drainEvents()), 60)
+    }
+
+    func testDelayedHeartbeatUsesElapsedClockAndStartsFullRestWhenObserved() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock)
         engine.start()
@@ -75,106 +50,176 @@ final class CycleEngineTests: XCTestCase {
         engine.tick()
         XCTAssertEqual(engine.snapshot.remaining, 2276.5, accuracy: 0.001)
         XCTAssertEqual(recordedWork(engine.drainEvents()), 123.5, accuracy: 0.001)
-        clock.advance(2276.5)
+        clock.advance(3000)
         engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue)
+        XCTAssertEqual(engine.snapshot.phase, .resting)
+        XCTAssertEqual(engine.snapshot.rest?.elapsed, 0, "A late tick must not consume unseen rest time")
+        XCTAssertEqual(engine.snapshot.remaining, 20)
+    }
+
+    func testManualRestCannotEnableStoppedRemindersOrEndPause() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock)
+        engine.beginRest()
+        XCTAssertEqual(engine.snapshot.phase, .stopped)
+        engine.start()
+        let until = clock.now.addingTimeInterval(3600)
+        engine.pause(until: until)
+        engine.beginRest()
+        XCTAssertEqual(engine.snapshot.phase, .paused)
+        XCTAssertEqual(engine.snapshot.pauseUntil, until)
         XCTAssertNil(engine.snapshot.rest)
     }
 
-    func testSnoozeExtendsUpcomingDeadlineAndUsesNowWhenAlreadyDue() {
+    func testImmediateRestUsesNewSettingsBeforePreferenceObserverDelivery() {
         let clock = TestCycleClock()
-        let engine = makeEngine(clock)
+        let engine = CycleEngine(clock: clock, configuration: .init(workDuration: 2400, restDuration: 300))
         engine.start()
-        clock.advance(100)
-        engine.snooze(by: 300)
-        XCTAssertEqual(engine.snapshot.remaining, 2600)
-        clock.advance(2600)
+        engine.beginRest(using: .init(workDuration: 1200, restDuration: 20))
+        XCTAssertEqual(engine.snapshot.rest?.duration, 20)
+        clock.advance(23)
         engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue)
-        engine.snooze(by: 300)
-        XCTAssertEqual(engine.snapshot.remaining, 300)
-        clock.advance(299)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .snoozed)
-        clock.advance(1)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue)
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertEqual(engine.snapshot.remaining, 1200)
+        XCTAssertEqual(completedRests(engine.drainEvents()).count, 1)
     }
 
-    func testSnoozeUsesGraceDeadlineSoItCannotMoveReminderEarlier() {
+    func testCancelAndSkipEachStartAFullIntervalWithoutCompletion() {
+        for elapsed: TimeInterval in [1, 10, 22.5] {
+            let clock = TestCycleClock()
+            let engine = makeEngine(clock)
+            engine.start()
+            clock.advance(2390)
+            engine.beginRest()
+            clock.advance(elapsed)
+            engine.cancelRest()
+            XCTAssertEqual(engine.snapshot.phase, .working)
+            XCTAssertEqual(engine.snapshot.remaining, 2400)
+            XCTAssertTrue(completedRests(engine.drainEvents()).isEmpty)
+            clock.advance(300)
+            engine.skipReminder()
+            XCTAssertEqual(engine.snapshot.remaining, 2400)
+            XCTAssertTrue(completedRests(engine.drainEvents()).isEmpty)
+        }
+    }
+
+    func testSkipActiveRestStartsFullInterval() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock, work: 60)
         engine.start()
-        engine.setEnvironment(.init(reason: .videoCall, detail: "Meeting app", isAway: false))
-        clock.advance(120)
-        engine.setEnvironment(.available)
+        clock.advance(60)
+        engine.tick()
+        engine.skipReminder()
+        XCTAssertEqual(engine.snapshot.phase, .working)
         XCTAssertEqual(engine.snapshot.remaining, 60)
-        engine.snooze(by: 300)
-        XCTAssertEqual(engine.snapshot.remaining, 360)
+        XCTAssertTrue(completedRests(engine.drainEvents()).isEmpty)
     }
 
-    func testReplacingManualPauseCannotBeUndoneByOldDeadlineOrMeetingEnd() {
+    func testPauseExpiryAndManualResumeStartFullInterval() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock, work: 60)
+        engine.start()
+        let until = clock.now.addingTimeInterval(300)
+        engine.pause(until: until)
+        clock.advance(300)
+        engine.tick()
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertEqual(engine.snapshot.remaining, 60)
+        XCTAssertNil(engine.snapshot.pauseUntil)
+        let events = engine.drainEvents()
+        XCTAssertTrue(events.contains(.pauseExpired(until: until)))
+        XCTAssertEqual(recordedWork(events), 300, "Pause suppresses reminders, not measured work")
+        engine.pause(until: clock.now.addingTimeInterval(300))
+        clock.advance(50)
+        engine.resume()
+        XCTAssertEqual(engine.snapshot.remaining, 60)
+        XCTAssertNil(engine.snapshot.pauseUntil)
+    }
+
+    func testReplacingPauseCannotBeUndoneByOldDeadline() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock, work: 60)
         engine.start()
         engine.pause(until: clock.now.addingTimeInterval(100))
         clock.advance(20)
-        engine.resume()
-        engine.pause(until: clock.now.addingTimeInterval(200))
+        let replacement = clock.now.addingTimeInterval(200)
+        engine.pause(until: replacement)
         clock.advance(80)
         engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .paused, "The original 100-second pause must not resume this newer pause")
-        engine.setEnvironment(.init(reason: .videoCall, detail: nil, isAway: false))
-        engine.setEnvironment(.available)
-        XCTAssertEqual(engine.snapshot.phase, .paused, "A meeting ending cannot override a manual pause")
-        engine.setEnvironment(.init(reason: .videoCall, detail: nil, isAway: false))
+        XCTAssertEqual(engine.snapshot.phase, .paused)
+        XCTAssertEqual(engine.snapshot.pauseUntil, replacement)
         clock.advance(120)
         engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .suspended, "Pause expiry cannot override a continuing meeting")
-        engine.setEnvironment(.available)
+        XCTAssertEqual(engine.snapshot.phase, .working)
         XCTAssertEqual(engine.snapshot.remaining, 60)
-        clock.advance(60)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue)
     }
 
-    func testMeetingCountsWorkDoesNotBecomeNaturalBreakAndEndsWithGrace() {
+    func testManualResumeAfterLateHeartbeatStillStartsFullInterval() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock, work: 60)
-        engine.start()
-        engine.setEnvironment(.init(reason: .videoCall, detail: "Meeting app", isAway: false))
-        clock.advance(7200)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .suspended)
-        let events = engine.drainEvents()
-        XCTAssertEqual(recordedWork(events), 7200)
-        XCTAssertFalse(events.contains { if case .naturalBreak = $0 { return true }; return false })
+        engine.start(pausedUntil: clock.now.addingTimeInterval(100))
+        clock.advance(200)
+        engine.resume()
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertEqual(engine.snapshot.remaining, 60)
+        XCTAssertNil(engine.snapshot.pauseUntil)
+    }
+
+    func testRelaunchRestoresFuturePauseAndNeverCountsOfflineWork() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock, work: 60)
+        let until = clock.now.addingTimeInterval(3600)
+        engine.start(pausedUntil: until)
+        clock.advance(10)
+        engine.stop()
+        XCTAssertEqual(recordedWork(engine.drainEvents()), 10)
+        clock.advance(1800)
+        let relaunched = makeEngine(clock, work: 60)
+        relaunched.start(pausedUntil: until)
+        XCTAssertEqual(relaunched.snapshot.phase, .paused)
+        XCTAssertEqual(relaunched.snapshot.pauseUntil, until)
+        XCTAssertTrue(relaunched.drainEvents().isEmpty)
+        clock.advance(1790)
+        relaunched.tick()
+        XCTAssertEqual(relaunched.snapshot.phase, .working)
+        XCTAssertEqual(relaunched.snapshot.remaining, 60)
+        XCTAssertEqual(recordedWork(relaunched.drainEvents()), 1790)
+    }
+
+    func testExpiredPauseAtLaunchStartsFreshInsteadOfImmediatelyDimming() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock, work: 60)
+        engine.start(pausedUntil: clock.now.addingTimeInterval(-300))
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertNil(engine.snapshot.pauseUntil)
+        XCTAssertEqual(engine.snapshot.remaining, 60)
+    }
+
+    func testPauseExpiryIsObservableDuringWakeAndDoesNotOverridePhysicalSleep() {
+        let clock = TestCycleClock()
+        let engine = makeEngine(clock, work: 60)
+        let until = clock.now.addingTimeInterval(100)
+        engine.start(pausedUntil: until)
+        engine.setEnvironment(.init(reason: .screenLocked, detail: nil, isAway: true))
+        clock.advance(300)
         engine.setEnvironment(.available)
         XCTAssertEqual(engine.snapshot.phase, .working)
         XCTAssertEqual(engine.snapshot.remaining, 60)
-        clock.advance(59)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.remaining, 1)
-        clock.advance(1)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue)
+        let events = engine.drainEvents()
+        XCTAssertTrue(events.contains(.pauseExpired(until: until)))
+        XCTAssertEqual(recordedWork(events), 0)
     }
 
-    func testReadingWithoutInputDowngradesImmersiveModeAndDoesNotResetCycle() {
+    func testSleepCannotOverrideOngoingManualPause() {
         let clock = TestCycleClock()
-        let engine = makeEngine(clock, work: 60, immersive: true)
-        engine.start()
-        engine.setEnvironment(.init(reason: .idle, detail: nil, isAway: false))
-        clock.advance(180)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue)
-        XCTAssertNil(engine.snapshot.rest)
-        XCTAssertEqual(recordedWork(engine.drainEvents()), 180)
+        let engine = makeEngine(clock)
+        let until = clock.now.addingTimeInterval(3600)
+        engine.start(pausedUntil: until)
+        engine.setEnvironment(.init(reason: .screenLocked, detail: nil, isAway: true))
+        clock.advance(120)
         engine.setEnvironment(.available)
-        engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .reminderDue, "Typing again must not convert an existing invitation to an overlay")
-        engine.beginRest()
-        XCTAssertEqual(engine.snapshot.phase, .resting)
+        XCTAssertEqual(engine.snapshot.phase, .paused)
+        XCTAssertEqual(engine.snapshot.pauseUntil, until)
     }
 
     func testSleepDuringRestWithdrawsItAndNaturalBreakIsNotGuidedCompletion() {
@@ -195,20 +240,22 @@ final class CycleEngineTests: XCTestCase {
         XCTAssertTrue(completedRests(events).isEmpty)
         XCTAssertEqual(recordedWork(events), 0)
         XCTAssertTrue(events.contains(.naturalBreak(duration: 3600)))
-        XCTAssertTrue(events.contains { if case .restEnded(_, _, .interrupted) = $0 { return true }; return false })
     }
 
-    func testShortSleepKeepsDueTimeAndAllowsGraceInsteadOfRestartingFullCycle() {
+    func testShortSleepKeepsDueTimeWithRecoveryGrace() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock)
         engine.start()
         clock.advance(2390)
-        engine.beginRest()
+        engine.tick()
         engine.setEnvironment(.init(reason: .screenLocked, detail: nil, isAway: true))
         clock.advance(5)
         engine.setEnvironment(.available)
         XCTAssertEqual(engine.snapshot.remaining, 60)
-        XCTAssertTrue(completedRests(engine.drainEvents()).isEmpty)
+        XCTAssertNil(engine.snapshot.rest)
+        clock.advance(60)
+        engine.tick()
+        XCTAssertEqual(engine.snapshot.phase, .resting)
     }
 
     func testTwentySecondRestHasIndependentTransitionsAndOneCompletion() {
@@ -235,34 +282,6 @@ final class CycleEngineTests: XCTestCase {
         XCTAssertEqual(completedRests(engine.drainEvents()), [id!])
     }
 
-    func testCancelRestPreservesDueAndFiveMinuteGraceWhileSkipStartsNewCycle() {
-        let clock = TestCycleClock()
-        let engine = makeEngine(clock)
-        engine.start()
-        clock.advance(2390)
-        engine.beginRest()
-        clock.advance(5)
-        engine.cancelRest()
-        XCTAssertEqual(engine.snapshot.remaining, 300)
-        XCTAssertTrue(completedRests(engine.drainEvents()).isEmpty)
-        engine.skipReminder()
-        XCTAssertEqual(engine.snapshot.remaining, 2400)
-    }
-
-    func testRestCanBeSnoozedFromEveryPhaseWithoutCompletion() {
-        for elapsed: TimeInterval in [1, 10, 22.5] {
-            let clock = TestCycleClock()
-            let engine = makeEngine(clock)
-            engine.start()
-            engine.beginRest()
-            clock.advance(elapsed)
-            engine.snooze(by: 120)
-            XCTAssertNil(engine.snapshot.rest)
-            XCTAssertEqual(engine.snapshot.remaining, 120)
-            XCTAssertTrue(completedRests(engine.drainEvents()).isEmpty)
-        }
-    }
-
     func testActiveRestKeepsItsDurationWhenSettingsChange() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock)
@@ -277,38 +296,25 @@ final class CycleEngineTests: XCTestCase {
         XCTAssertEqual(engine.snapshot.remaining, 1200)
     }
 
-    func testRuntimeConfigurationPreservesElapsedWorkAndExplicitSnooze() {
+    func testRuntimeConfigurationPreservesElapsedWork() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock)
         engine.start()
         clock.advance(1000)
         engine.configure(.init(workDuration: 1200, restDuration: 20))
         XCTAssertEqual(engine.snapshot.remaining, 200)
-        engine.snooze(by: 300)
-        XCTAssertEqual(engine.snapshot.remaining, 500)
-        engine.configure(.init(workDuration: 2400, restDuration: 60))
-        XCTAssertEqual(engine.snapshot.remaining, 500, "A settings edit must not rewrite an explicit snooze")
     }
 
-    func testEnvironmentRecoveryCannotShortenAnExistingCancellationGrace() {
-        let clock = TestCycleClock()
-        let engine = makeEngine(clock, work: 60)
-        engine.start()
-        clock.advance(60)
-        engine.beginRest()
-        clock.advance(5)
-        engine.cancelRest()
-        XCTAssertEqual(engine.snapshot.remaining, 300)
-        engine.setEnvironment(.init(reason: .videoCall, detail: nil, isAway: false))
-        clock.advance(10)
-        engine.setEnvironment(.available)
-        XCTAssertEqual(engine.snapshot.remaining, 290)
-    }
-
-    func testMovingCalendarClockBackwardsDoesNotExtendRunningRest() {
+    func testCalendarClockRollbackCannotExtendRestOrPause() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock)
         engine.start()
+        engine.pause(until: clock.now.addingTimeInterval(100))
+        clock.now = clock.now.addingTimeInterval(-3600)
+        clock.advance(100)
+        engine.tick()
+        XCTAssertEqual(engine.snapshot.phase, .working)
+        XCTAssertEqual(engine.snapshot.remaining, 2400)
         engine.beginRest()
         clock.advance(10)
         clock.now = clock.now.addingTimeInterval(-3600)
@@ -316,85 +322,25 @@ final class CycleEngineTests: XCTestCase {
         XCTAssertEqual(engine.snapshot.remaining, 12)
         clock.advance(13)
         engine.tick()
-        XCTAssertEqual(engine.snapshot.phase, .working)
         XCTAssertEqual(completedRests(engine.drainEvents()).count, 1)
     }
 
-    func testStoppedOrRestartedEngineNeverCountsOfflineTime() {
+    func testStoppedEngineNeverCountsOfflineTimeOrResurrectsPause() {
         let clock = TestCycleClock()
         let engine = makeEngine(clock)
         engine.start()
+        engine.pause(until: clock.now.addingTimeInterval(100))
         clock.advance(10)
         engine.stop()
         XCTAssertEqual(recordedWork(engine.drainEvents()), 10)
+        XCTAssertEqual(engine.snapshot.phase, .stopped)
+        XCTAssertNil(engine.snapshot.pauseUntil)
         clock.advance(3600)
         engine.tick()
         XCTAssertTrue(engine.drainEvents().isEmpty)
-        let restarted = makeEngine(clock)
-        restarted.start()
-        XCTAssertEqual(restarted.snapshot.remaining, 2400)
-        XCTAssertTrue(restarted.drainEvents().isEmpty)
-    }
-
-    func testSwitchingEnvironmentOffRestoresGraceWithoutLosingManualPause() {
-        let clock = TestCycleClock()
-        let engine = makeEngine(clock, work: 60)
+        XCTAssertEqual(engine.snapshot.phase, .stopped)
         engine.start()
-        engine.pause(until: clock.now.addingTimeInterval(300))
-        engine.setEnvironment(.init(reason: .fullscreen, detail: nil, isAway: false))
-        clock.advance(120)
-        engine.setEnvironment(.available)
-        XCTAssertEqual(engine.snapshot.phase, .paused)
-        engine.resume()
-        XCTAssertEqual(engine.snapshot.phase, .working)
-        XCTAssertEqual(engine.snapshot.remaining, 60)
-    }
-}
-
-final class WorkspaceRuleResolverTests: XCTestCase {
-    private let ownID = "example.LumenFocus.tests"
-
-    func testRuleAppRemainsSuppressedWhileOwnPopoverOrSettingsIsFrontmost() {
-        var resolver = ForegroundAppRuleResolver()
-        let zoom = resolver.resolve(bundleID: "us.zoom.xos", name: "Zoom", ownBundleID: ownID,
-                                    enabled: true, videoCall: true, fullscreen: true)
-        XCTAssertEqual(zoom, PauseSignal(reason: .videoCall, detail: "Zoom"))
-        let own = resolver.resolve(bundleID: ownID, name: "LumenFocus", ownBundleID: ownID,
-                                   enabled: true, videoCall: true, fullscreen: true)
-        XCTAssertEqual(own, zoom)
-        let editor = resolver.resolve(bundleID: "com.apple.dt.Xcode", name: "Xcode", ownBundleID: ownID,
-                                      enabled: true, videoCall: true, fullscreen: true)
-        XCTAssertNil(editor)
-        XCTAssertNil(resolver.resolve(bundleID: ownID, name: "LumenFocus", ownBundleID: ownID,
-                                      enabled: true, videoCall: true, fullscreen: true))
-    }
-
-    func testMasterAndRuleSwitchesApplyWhileOwnSettingsWindowRemainsFrontmost() {
-        var resolver = ForegroundAppRuleResolver()
-        _ = resolver.resolve(bundleID: "us.zoom.xos", name: "Zoom", ownBundleID: ownID,
-                             enabled: true, videoCall: true, fullscreen: true)
-        XCTAssertNil(resolver.resolve(bundleID: ownID, name: nil, ownBundleID: ownID,
-                                      enabled: false, videoCall: true, fullscreen: true))
-        XCTAssertNil(resolver.resolve(bundleID: ownID, name: nil, ownBundleID: ownID,
-                                      enabled: true, videoCall: false, fullscreen: true))
-        XCTAssertEqual(resolver.resolve(bundleID: ownID, name: nil, ownBundleID: ownID,
-                                        enabled: true, videoCall: true, fullscreen: true)?.reason, .videoCall)
-    }
-
-    func testPresentationRuleRetainsExternalContextWithoutClaimingRealFullscreenDetection() {
-        var resolver = ForegroundAppRuleResolver()
-        _ = resolver.resolve(bundleID: "com.apple.iWork.Keynote", name: "Keynote", ownBundleID: ownID,
-                             enabled: true, videoCall: true, fullscreen: true)
-        let own = resolver.resolve(bundleID: ownID, name: "LumenFocus", ownBundleID: ownID,
-                                   enabled: true, videoCall: true, fullscreen: true)
-        XCTAssertEqual(own, PauseSignal(reason: .fullscreen, detail: "Keynote"))
-        XCTAssertNil(resolver.resolve(bundleID: ownID, name: nil, ownBundleID: ownID,
-                                      enabled: true, videoCall: true, fullscreen: false))
-    }
-
-    func testOwnAppWithNoExternalContextDoesNotInventMeetingState() {
-        var resolver = ForegroundAppRuleResolver()
-        XCTAssertNil(resolver.resolve(bundleID: ownID, name: "LumenFocus", ownBundleID: ownID,
-                                      enabled: true, videoCall: true, fullscreen: true))
+        XCTAssertEqual(engine.snapshot.remaining, 2400)
+        XCTAssertTrue(engine.drainEvents().isEmpty)
     }
 }

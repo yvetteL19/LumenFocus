@@ -283,14 +283,14 @@ private struct StatisticsRestAction: View {
 
     var body: some View {
         switch appState.currentPhase {
-        case .working, .reminderDue:
-            Button("现在休息") { TimerManager.shared.triggerManualRest() }
+        case .working:
+            Button("休息一下") { TimerManager.shared.triggerManualRest() }
                 .buttonStyle(.bordered)
         case .triggeringRest, .resting:
             Button("休息进行中") {}
                 .buttonStyle(.bordered)
                 .disabled(true)
-        case .paused, .autoSuspended:
+        case .stopped, .paused, .autoSuspended:
             EmptyView()
         }
     }

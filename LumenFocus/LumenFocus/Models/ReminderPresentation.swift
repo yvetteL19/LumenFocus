@@ -2,13 +2,10 @@ import Foundation
 
 /// Display-only decisions shared by the popover and native menu. No timer or settings writes.
 struct ReminderPresentation {
-    static let defaultSnoozeMinutes = 5
-    static let delayChoices = [2, 5, 10]
-    static let pauseChoices = [15, 60]
-    static var defaultSnoozeSeconds: TimeInterval { TimeInterval(defaultSnoozeMinutes * 60) }
+    static let pauseChoices = [60, 120, 240]
 
     enum Action: Equatable {
-        case startRest, resumeReminders, endRest
+        case startReminders, startRest, resumeReminders, endRest
     }
 
     let phase: AppPhase
@@ -30,9 +27,9 @@ struct ReminderPresentation {
 
     var titleKey: String {
         switch phase {
+        case .stopped: return "提醒已停止"
         case .working: return "下次提醒"
-        case .reminderDue: return "休息提醒"
-        case .triggeringRest: return "准备离屏休息"
+        case .triggeringRest: return "休息一下"
         case .resting: return "剩余休息时间"
         case .paused: return "提醒已暂停"
         case .autoSuspended: return "提醒暂缓"
@@ -41,8 +38,8 @@ struct ReminderPresentation {
 
     var symbolName: String {
         switch phase {
+        case .stopped: return "stop.circle"
         case .working: return "clock"
-        case .reminderDue: return "eye"
         case .triggeringRest, .resting: return "leaf"
         case .paused, .autoSuspended: return "pause.circle"
         }
@@ -50,28 +47,24 @@ struct ReminderPresentation {
 
     var primaryAction: Action {
         switch phase {
+        case .stopped: return .startReminders
         case .paused: return .resumeReminders
         case .triggeringRest, .resting: return .endRest
-        case .working, .reminderDue, .autoSuspended: return .startRest
+        case .working, .autoSuspended: return .startRest
         }
     }
 
     var primaryTitleKey: String {
         switch phase {
-        case .reminderDue: return "开始休息"
+        case .stopped: return "开启提醒"
         case .paused: return "恢复提醒"
-        case .triggeringRest, .resting: return "提前结束"
-        case .working, .autoSuspended: return "现在休息"
+        case .triggeringRest, .resting: return "返回工作"
+        case .working, .autoSuspended: return "休息一下"
         }
     }
 
     func primaryTitle(localize: (String) -> String = { L($0) }) -> String {
-        switch phase {
-        case .working, .autoSuspended:
-            return String(format: localize("现在休息 %@"), formatBreakDuration(restDurationSeconds))
-        default:
-            return localize(primaryTitleKey)
-        }
+        localize(primaryTitleKey)
     }
 
     var pauseMenuTitleKey: String {
@@ -82,9 +75,9 @@ struct ReminderPresentation {
     func value(localize: (String) -> String = { L($0) },
                clockText: (Date) -> String = ReminderPresentation.clockText) -> String {
         switch phase {
+        case .stopped: return "—"
         case .working:
             return nextReminderDate.map(clockText) ?? Self.countdown(seconds: remainingSeconds)
-        case .reminderDue: return Self.restInvitationTitle(seconds: restDurationSeconds, localize: localize)
         case .triggeringRest, .resting: return Self.countdown(seconds: remainingSeconds)
         case .paused(let until):
             switch until {
@@ -98,22 +91,14 @@ struct ReminderPresentation {
     func detail(localize: ((String) -> String)? = nil) -> String {
         let translate = localize ?? { L($0) }
         switch phase {
-        case .working:
-            let countdown = Self.remainingDescription(seconds: remainingSeconds, localize: localize)
-            if let environmentDetail, !environmentDetail.isEmpty {
-                return countdown + "\n" + environmentDetail
-            }
-            return countdown
-        case .reminderDue: return translate("开始后，所有屏幕会渐暗。你可以随时提前结束。")
-        case .triggeringRest, .resting: return translate("看向屏幕之外。你可以随时结束或延后。")
-        case .paused(let until):
-            switch until {
-            case .duration: return translate("届时结束暂停；应用规则仍然生效。工作时长继续累计。")
-            case .endOfDay: return translate("明天恢复提醒，也可随时手动恢复。")
-            }
+        case .stopped: return translate("开启后，会按设定间隔自动渐暗。")
+        case .working: return Self.remainingDescription(seconds: remainingSeconds, localize: localize)
+        case .triggeringRest, .resting:
+            return translate("休息结束后自动恢复，按任意键可随时返回。")
+        case .paused:
+            return translate("届时恢复计时，按设定间隔再次渐暗。")
         case .autoSuspended:
-            if let environmentDetail, !environmentDetail.isEmpty { return environmentDetail }
-            return translate("规则解除后会留出缓冲，再恢复提醒。")
+            return environmentDetail ?? translate("屏幕已锁定或睡眠，提醒和工作计时已暂停。")
         }
     }
 
@@ -123,18 +108,9 @@ struct ReminderPresentation {
         guard phase == .working, let lastRestOutcome else { return nil }
         switch lastRestOutcome {
         case .completed: return localize("休息已完成")
-        case .userCancelled: return localize("已提前结束，未计入完成次数。")
-        case .snoozed: return localize("已延后提醒")
+        case .userCancelled: return localize("已返回工作")
         case .interrupted: return nil
         }
-    }
-
-    static func restInvitationTitle(seconds: Int, localize: (String) -> String = { L($0) }) -> String {
-        String(format: localize("离屏休息 %@"), formatBreakDuration(seconds))
-    }
-
-    static func defaultSnoozeTitle(localize: (String) -> String = { L($0) }) -> String {
-        String(format: localize("%@后再提醒"), formatBreakDuration(defaultSnoozeMinutes * 60))
     }
 
     static func skipTitle(workMinutes: Int, now: Date = Date(),
@@ -143,22 +119,6 @@ struct ReminderPresentation {
         let next = now.addingTimeInterval(TimeInterval(max(0, workMinutes) * 60))
         return String(format: localize("跳过 · 下次 %@"),
                       clockText?(next) ?? Self.clockText(next, relativeTo: now))
-    }
-
-    func delayOptionTitle(minutes: Int, now: Date = Date(),
-                          localize: (String) -> String = { L($0) }) -> String {
-        String(format: localize("延后 %@ · %@"), formatBreakDuration(minutes * 60),
-               Self.clockText(delayedReminderDate(minutes: minutes, now: now), relativeTo: now))
-    }
-
-    func delayedReminderDate(minutes: Int, now: Date = Date()) -> Date {
-        let base: Date
-        if case .working = phase {
-            base = max(nextReminderDate ?? now, now)
-        } else {
-            base = now
-        }
-        return base.addingTimeInterval(TimeInterval(minutes) * 60)
     }
 
     static func menuBarCountdown(seconds: Int) -> String {

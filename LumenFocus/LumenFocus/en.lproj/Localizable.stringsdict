@@ -13,9 +13,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>%d completed breaks</string>
+			<string>%d timed endings</string>
 			<key>one</key>
-			<string>%d completed break</string>
+			<string>%d timed ending</string>
 		</dict>
 	</dict>
 	<key>completed_breaks_today</key>
@@ -29,9 +29,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>%d completed breaks today</string>
+			<string>%d timed endings today</string>
 			<key>one</key>
-			<string>%d completed break today</string>
+			<string>%d timed ending today</string>
 		</dict>
 	</dict>
 	<key>daily_record_accessibility</key>
@@ -45,9 +45,9 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>%d completed breaks</string>
+			<string>%d timed endings</string>
 			<key>one</key>
-			<string>%d completed break</string>
+			<string>%d timed ending</string>
 		</dict>
 	</dict>
 </dict>

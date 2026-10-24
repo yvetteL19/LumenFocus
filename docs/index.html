@@ -50,11 +50,12 @@
 <body>
   <div class="logo"><span></span></div>
   <h1>Privacy Policy</h1>
-  <p class="muted">LumenFocus for macOS · Effective date: 23 October 2026</p>
+  <p class="muted">LumenFocus for macOS · Effective date: 24 October 2026</p>
 
   <p class="lead">LumenFocus (“the App”, “we”, “us”) is a menu-bar utility for macOS
-  that reminds you to rest your eyes. We believe privacy is a feature. This policy
-  describes how the App handles information. <strong>In short: the App does not
+  that silently dims your displays at a set interval to remind you to take a break.
+  You can return at any time by pressing a key. This policy describes how the App
+  handles information. <strong>The App does not
   transmit your activity records or diagnostic reports, and there are no analytics,
   tracking, accounts, or advertising.</strong></p>
 
@@ -80,8 +81,8 @@
   upload this data. If you choose to export or share a file, you control that copy:</p>
   <table>
     <tr><th>Data</th><th>Purpose</th><th>Retention</th></tr>
-    <tr><td>Preferences (work/rest durations, reminder mode, avoidance rules, launch-at-login, menu-bar options)</td><td>Operate the App as you configured it</td><td>Until changed or local App data is removed</td></tr>
-    <tr><td>Activity statistics (completed break counts, timed work duration, and completion identifiers used to prevent duplicate counts)</td><td>Show your local records and trends. These are timer records, not measurements of screen exposure, gaze, or health outcomes.</td><td>Today and the preceding 89 local calendar days. Older statistics are removed when the App launches or refreshes the day; cleanup cannot run while the App is closed.</td></tr>
+    <tr><td>Preferences (reminder interval, break length, enabled/stopped state, pause deadline, language, launch-at-login and menu-bar options)</td><td>Operate the App as you configured it</td><td>Until changed or local App data is removed</td></tr>
+    <tr><td>Activity statistics (breaks that ended on the timer, timed work duration, and identifiers used to prevent duplicate counts)</td><td>Show your local timer history. These records do not measure attention, gaze, screen exposure or health.</td><td>Today and the preceding 89 local calendar days. Older statistics are removed when the App launches or refreshes the day; cleanup cannot run while the App is closed.</td></tr>
     <tr><td>Local diagnostic reports supplied by Apple's MetricKit (such as crash, hang, and CPU diagnostics)</td><td>Help investigate technical problems if you choose to share a report</td><td>Until the diagnostic files or local App data are manually removed. The 90-day statistics limit does not apply to diagnostics.</td></tr>
   </table>
   <p>If you use the optional CSV export, a file is written only to the location you
@@ -98,11 +99,14 @@
     <li><strong>Notifications</strong>: weekly recap notifications are currently
         disabled. Previously scheduled weekly reminders are cleared when this
         version starts. The App does not request notification permission for a recap.</li>
-    <li><strong>Activity awareness</strong>: to avoid interrupting you, the App
-        checks on-device signals such as the foreground application, keyboard/mouse
-        inactivity, and lock/sleep state. Foreground-app rules do not confirm that a
-        call, screen share, or fullscreen session is taking place. These checks are performed in
-        memory, in real time, and are neither recorded nor transmitted.</li>
+    <li><strong>Lock and sleep</strong>: the App responds to macOS lock and sleep
+        events to hide overlays and stop work timing while your Mac is unavailable.
+        It does not identify the foreground app, detect calls or videos, or monitor
+        input inactivity to decide whether to show a reminder.</li>
+    <li><strong>Returning from a break</strong>: while its overlay has keyboard focus,
+        the App handles a key press only to dismiss the overlay. It does not save
+        keyboard contents, forward the dismissal key to another app, or replay it.
+        This does not require Accessibility or screen-recording permission.</li>
   </ul>
 
   <h2>5. Third Parties</h2>
@@ -113,7 +117,7 @@
   unless they are needed to explain the issue.</p>
 
   <h2>6. Your Rights</h2>
-  <p>You can view your activity history and export it as CSV in Statistics.
+  <p>You can view your timer history and export it as CSV in Records.
   Removing the application bundle does not necessarily remove its preferences,
   sandbox data, diagnostic reports, or exported files. To remove these records,
   delete the corresponding local App data and any exported copies you no longer

@@ -17,29 +17,27 @@ final class SystemCycleClock: CycleClock {
 }
 
 enum AutoSuspendReason: Equatable {
-    case idle, fullscreen, videoCall, focusMode, screenLocked
+    case screenLocked
 }
 
-/// A suppressed reminder is not proof of a break. Only lock/sleep establishes away time.
+/// Only physical lock/sleep suspends reminders and establishes away time.
 struct CycleEnvironment: Equatable {
     var reason: AutoSuspendReason?
     var detail: String?
     var isAway: Bool
 
     static let available = CycleEnvironment(reason: nil, detail: nil, isAway: false)
-    /// Reading without input still deserves a reminder, but never an automatic overlay.
-    var suppressesReminder: Bool { (reason != nil && reason != .idle) || isAway }
+    var suppressesReminder: Bool { isAway }
 }
 
 enum RestEndReason: Equatable {
     case completed
     case userCancelled
-    case snoozed(seconds: TimeInterval)
     case interrupted
 }
 
 enum CyclePhase: Equatable {
-    case stopped, working, snoozed, reminderDue, resting, paused, suspended
+    case stopped, working, resting, paused, suspended
 }
 
 struct CycleRestProgress: Equatable {
@@ -68,6 +66,7 @@ enum CycleEvent: Equatable {
     case workRecorded(from: Date, to: Date)
     case restEnded(id: UUID, at: Date, reason: RestEndReason)
     case naturalBreak(duration: TimeInterval)
+    case pauseExpired(until: Date)
 }
 
 /// The only owner of cycle deadlines and transitions. No timers, windows, or persistence.
@@ -76,7 +75,6 @@ final class CycleEngine {
     struct Configuration: Equatable {
         var workDuration: TimeInterval
         var restDuration: TimeInterval
-        var automaticallyStartsRest: Bool = false
         var recoveryGrace: TimeInterval = 60
         var fadeInDuration: TimeInterval = 2
         var fadeOutDuration: TimeInterval = 1
@@ -107,8 +105,6 @@ final class CycleEngine {
     private var manualPauseDate: Date?
     private var awayStarted: TimeInterval?
     private var restSession: RestSession?
-    private var isSnoozed = false
-    private var requiresAcceptance = false
     private var events: [CycleEvent] = []
 
     init(clock: CycleClock = SystemCycleClock(), configuration: Configuration) {
@@ -132,12 +128,11 @@ final class CycleEngine {
         else if rest != nil { phase = .resting }
         else if manualPauseDeadline != nil { phase = .paused }
         else if environment.suppressesReminder { phase = .suspended }
-        else if now.elapsed >= effectiveDeadline { phase = .reminderDue }
-        else { phase = isSnoozed ? .snoozed : .working }
+        else { phase = .working }
 
         let remaining = rest?.remaining ?? max(0, effectiveDeadline - now.elapsed)
         let duration = rest?.duration ?? configuration.workDuration
-        let nextDate: Date? = (phase == .working || phase == .snoozed || phase == .reminderDue)
+        let nextDate: Date? = phase == .working
             ? now.date.addingTimeInterval(max(0, effectiveDeadline - now.elapsed)) : nil
         return CycleSnapshot(phase: phase, remaining: remaining,
                              progress: min(1, max(0, remaining / duration)),
@@ -151,7 +146,7 @@ final class CycleEngine {
         return result
     }
 
-    func start() {
+    func start(pausedUntil: Date? = nil) {
         observe(allowAutomaticRest: false)
         endRest(reason: .interrupted)
         isStarted = true
@@ -160,12 +155,18 @@ final class CycleEngine {
         graceDeadline = nil
         awayStarted = environment.isAway ? lastReading.elapsed : nil
         startNextWorkPeriod()
+        if let pausedUntil, pausedUntil.timeIntervalSinceReferenceDate.isFinite, pausedUntil > lastReading.date {
+            manualPauseDate = pausedUntil
+            manualPauseDeadline = lastReading.elapsed + pausedUntil.timeIntervalSince(lastReading.date)
+        }
     }
 
     func stop() {
         observe(allowAutomaticRest: false)
         endRest(reason: .interrupted)
         isStarted = false
+        manualPauseDeadline = nil
+        manualPauseDate = nil
     }
 
     func tick() { observe() }
@@ -173,8 +174,8 @@ final class CycleEngine {
     func configure(_ value: Configuration) {
         observe(allowAutomaticRest: false)
         let value = Self.validated(value)
-        // Preserve time already worked. Explicit snooze deadlines stay explicit.
-        if restSession == nil && !isSnoozed {
+        // Preserve time already worked when the user changes the interval.
+        if restSession == nil {
             workDeadline += value.workDuration - configuration.workDuration
         }
         configuration = value
@@ -182,6 +183,7 @@ final class CycleEngine {
     }
 
     func pause(until date: Date) {
+        guard isStarted, date.timeIntervalSinceReferenceDate.isFinite else { return }
         observe(allowAutomaticRest: false)
         endRest(reason: .interrupted)
         let delay = max(0, date.timeIntervalSince(lastReading.date))
@@ -192,13 +194,14 @@ final class CycleEngine {
     }
 
     func resume() {
+        let wasPaused = manualPauseDeadline != nil
         observe(allowAutomaticRest: false)
-        if manualPauseDeadline != nil {
+        if wasPaused {
             manualPauseDeadline = nil
             manualPauseDate = nil
-            beginRecoveryGrace()
+            startNextWorkPeriod()
         }
-        // Environmental suppression remains independent of the user's pause.
+        // Physical lock/sleep remains independent of the user's pause.
     }
 
     func beginRest(using latestConfiguration: Configuration? = nil) {
@@ -206,9 +209,7 @@ final class CycleEngine {
         // Apply its current settings atomically before creating the session.
         if let latestConfiguration { configure(latestConfiguration) }
         observe(allowAutomaticRest: false)
-        guard isStarted, !environment.isAway, restSession == nil else { return }
-        manualPauseDeadline = nil
-        manualPauseDate = nil
+        guard isStarted, !environment.isAway, manualPauseDeadline == nil, restSession == nil else { return }
         graceDeadline = nil
         beginRestAtCurrentTime()
     }
@@ -217,23 +218,8 @@ final class CycleEngine {
         observe(allowAutomaticRest: false)
         guard restSession != nil else { return }
         endRest(reason: .userCancelled)
-        // Cancelling is not a completed break and does not erase the original due time.
-        graceDeadline = max(graceDeadline ?? 0, lastReading.elapsed + 5 * 60)
-    }
-
-    func snooze(by seconds: TimeInterval) {
-        guard seconds.isFinite, seconds > 0 else { return }
-        observe(allowAutomaticRest: false)
-        let wasResting = restSession != nil
-        endRest(reason: .snoozed(seconds: seconds))
-        // Upcoming reminder: extend its deadline. Due reminder/rest: N seconds from now.
-        let effectiveDeadline = max(workDeadline, graceDeadline ?? workDeadline)
-        workDeadline = (wasResting ? lastReading.elapsed : max(effectiveDeadline, lastReading.elapsed)) + seconds
-        manualPauseDeadline = nil
-        manualPauseDate = nil
-        graceDeadline = nil
-        isSnoozed = true
-        requiresAcceptance = false
+        // Early return is not completion. Give the user the full next interval.
+        startNextWorkPeriod()
     }
 
     func skipReminder() {
@@ -245,7 +231,7 @@ final class CycleEngine {
     func setEnvironment(_ value: CycleEnvironment) {
         observe(allowAutomaticRest: false)
         let previous = environment
-        environment = value
+        environment = value.isAway ? CycleEnvironment(reason: .screenLocked, detail: nil, isAway: true) : .available
 
         if !previous.isAway && value.isAway {
             awayStarted = lastReading.elapsed
@@ -257,15 +243,6 @@ final class CycleEngine {
                 events.append(.naturalBreak(duration: duration))
                 startNextWorkPeriod()
             }
-            beginRecoveryGrace()
-        }
-
-        // No input during a rest is expected; it must never cancel that rest.
-        if value.reason != previous.reason,
-           value.reason == .videoCall || value.reason == .fullscreen {
-            endRest(reason: .interrupted)
-        }
-        if previous.suppressesReminder && !value.suppressesReminder {
             beginRecoveryGrace()
         }
     }
@@ -286,21 +263,15 @@ final class CycleEngine {
             let completionDate = date(at: rest.ends)
             events.append(.restEnded(id: rest.id, at: completionDate, reason: .completed))
             workDeadline = rest.ends + configuration.workDuration
-            isSnoozed = false
             workStarts = max(workStarts, rest.ends)
         }
         if !environment.isAway && reading.elapsed > workStarts {
             events.append(.workRecorded(from: date(at: workStarts), to: reading.date))
         }
         expirePauseIfNeeded()
-        if allowAutomaticRest && snapshot.phase == .reminderDue {
-            if configuration.automaticallyStartsRest && environment.reason != .idle && !requiresAcceptance {
-                beginRestAtCurrentTime()
-            } else {
-                // Once an invitation is visible, typing again or changing a setting must
-                // not unexpectedly turn that invitation into a full-screen overlay.
-                requiresAcceptance = true
-            }
+        if allowAutomaticRest && restSession == nil && manualPauseDeadline == nil && !environment.isAway
+            && reading.elapsed >= max(workDeadline, graceDeadline ?? workDeadline) {
+            beginRestAtCurrentTime()
         }
     }
 
@@ -315,18 +286,15 @@ final class CycleEngine {
     }
 
     private func beginRestAtCurrentTime() {
-        requiresAcceptance = false
         restSession = RestSession(id: UUID(), started: lastReading.elapsed,
                                   duration: configuration.restDuration,
                                   fadeIn: configuration.fadeInDuration,
                                   fadeOut: configuration.fadeOutDuration)
     }
 
-    private func startNextWorkPeriod() {
-        workDeadline = lastReading.elapsed + configuration.workDuration
+    private func startNextWorkPeriod(at elapsed: TimeInterval? = nil) {
+        workDeadline = (elapsed ?? lastReading.elapsed) + configuration.workDuration
         graceDeadline = nil
-        isSnoozed = false
-        requiresAcceptance = false
     }
 
     private func beginRecoveryGrace() {
@@ -335,9 +303,10 @@ final class CycleEngine {
 
     private func expirePauseIfNeeded() {
         guard let deadline = manualPauseDeadline, lastReading.elapsed >= deadline else { return }
+        if let date = manualPauseDate { events.append(.pauseExpired(until: date)) }
         manualPauseDeadline = nil
         manualPauseDate = nil
-        beginRecoveryGrace()
+        startNextWorkPeriod(at: deadline)
     }
 
     private static func validated(_ value: Configuration) -> Configuration {

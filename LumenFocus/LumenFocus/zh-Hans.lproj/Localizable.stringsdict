@@ -13,7 +13,7 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>完成 %d 次休息</string>
+			<string>定时结束 %d 次</string>
 		</dict>
 	</dict>
 	<key>completed_breaks_today</key>
@@ -27,7 +27,7 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>今日完成 %d 次休息</string>
+			<string>今日定时结束 %d 次</string>
 		</dict>
 	</dict>
 	<key>daily_record_accessibility</key>
@@ -41,7 +41,7 @@
 			<key>NSStringFormatValueTypeKey</key>
 			<string>d</string>
 			<key>other</key>
-			<string>完成 %d 次休息</string>
+			<string>定时结束 %d 次</string>
 		</dict>
 	</dict>
 </dict>

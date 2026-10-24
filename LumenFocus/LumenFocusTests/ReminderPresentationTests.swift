@@ -44,37 +44,27 @@ final class ReminderPresentationTests: XCTestCase {
 
     func testPrimaryActionsMatchTheMeaningOfEveryState() {
         XCTAssertEqual(presentation(.working).primaryAction, .startRest)
-        XCTAssertEqual(presentation(.reminderDue).primaryAction, .startRest)
         XCTAssertEqual(presentation(.triggeringRest).primaryAction, .endRest)
-        XCTAssertEqual(presentation(.triggeringRest).primaryTitleKey, "提前结束")
+        XCTAssertEqual(presentation(.triggeringRest).primaryTitleKey, "返回工作")
         XCTAssertEqual(presentation(.resting).primaryAction, .endRest)
-        XCTAssertEqual(presentation(.resting).primaryTitleKey, "提前结束")
-        XCTAssertEqual(presentation(.reminderDue).primaryTitleKey, "开始休息")
-        XCTAssertEqual(presentation(.autoSuspended(reason: .videoCall)).primaryAction, .startRest)
+        XCTAssertEqual(presentation(.resting).primaryTitleKey, "返回工作")
+        XCTAssertEqual(presentation(.stopped).primaryTitleKey, "开启提醒")
+        XCTAssertEqual(presentation(.stopped).primaryAction, .startReminders)
+        XCTAssertEqual(presentation(.autoSuspended(reason: .screenLocked)).primaryAction, .startRest)
         let paused = presentation(.paused(until: .duration(now.addingTimeInterval(900))))
         XCTAssertEqual(paused.primaryAction, .resumeReminders)
         XCTAssertEqual(paused.primaryTitleKey, "恢复提醒")
         XCTAssertEqual(paused.pauseMenuTitleKey, "调整暂停时间")
     }
 
-    func testDisplayedDelayUsesUpcomingDeadlineButDueAndRestUseNow() {
-        let due = now.addingTimeInterval(600)
-        XCTAssertEqual(presentation(.working, due: due).delayedReminderDate(minutes: 5, now: now), due.addingTimeInterval(300))
-        XCTAssertEqual(presentation(.reminderDue, due: due).delayedReminderDate(minutes: 5, now: now), now.addingTimeInterval(300))
-        XCTAssertEqual(presentation(.resting).delayedReminderDate(minutes: 2, now: now), now.addingTimeInterval(120))
-        XCTAssertEqual(presentation(.working, due: now.addingTimeInterval(-10)).delayedReminderDate(minutes: 5, now: now), now.addingTimeInterval(300))
-    }
-
-    func testImmediateBreakActionsIncludeTheConfiguredDurationButDueActionStaysConcise() {
-        for phase: AppPhase in [.working, .autoSuspended(reason: .videoCall)] {
-            let state = ReminderPresentation(phase: phase, remainingSeconds: 0, nextReminderDate: now,
-                                             environmentDetail: nil, restDurationSeconds: 20)
-            XCTAssertEqual(state.primaryTitle(localize: { $0 }), "现在休息 \(formatBreakDuration(20))")
-        }
-        let due = ReminderPresentation(phase: .reminderDue, remainingSeconds: 0, nextReminderDate: now,
-                                       environmentDetail: nil, restDurationSeconds: 600)
-        XCTAssertEqual(due.primaryTitle(localize: { $0 }), "开始休息")
-        XCTAssertEqual(due.value(localize: { $0 }), "离屏休息 \(formatBreakDuration(600))")
+    func testStoppedAndPausedExplainHowAutomaticDimmingResumes() {
+        XCTAssertEqual(presentation(.stopped).value(localize: { $0 }), "—")
+        XCTAssertEqual(presentation(.stopped).detail(localize: { $0 }), "开启后，会按设定间隔自动渐暗。")
+        XCTAssertEqual(presentation(.paused(until: .duration(now))).detail(localize: { $0 }),
+                       "届时恢复计时，按设定间隔再次渐暗。")
+        XCTAssertEqual(presentation(.resting).detail(localize: { $0 }),
+                       "休息结束后自动恢复，按任意键可随时返回。")
+        XCTAssertEqual(ReminderPresentation.pauseChoices, [60, 120, 240])
     }
 
     func testRhythmSummaryPreservesTwentySecondAndMixedDurationBreaks() {
@@ -94,9 +84,9 @@ final class ReminderPresentationTests: XCTestCase {
         XCTAssertEqual(renderedDate, now.addingTimeInterval(900))
     }
 
-    func testWorkingEnvironmentExplanationDoesNotHideCountdown() {
+    func testWorkingDetailDoesNotExposeLegacyApplicationRules() {
         let state = presentation(.working, seconds: 45, detail: "Light reminders while idle.")
-        XCTAssertEqual(state.detail(localize: { self.english[$0] ?? $0 }), "In 45 sec\nLight reminders while idle.")
+        XCTAssertEqual(state.detail(localize: { self.english[$0] ?? $0 }), "In 45 sec")
     }
 
     func testPausedAndRestingValuesDoNotShowAWorkingReminderTime() {
@@ -121,12 +111,11 @@ final class ReminderPresentationTests: XCTestCase {
                                  environmentDetail: nil, lastRestOutcome: reason).outcomeText(localize: { $0 })
         }
         XCTAssertEqual(outcome(.completed), "休息已完成")
-        XCTAssertEqual(outcome(.userCancelled), "已提前结束，未计入完成次数。")
-        XCTAssertEqual(outcome(.snoozed(seconds: 300)), "已延后提醒")
+        XCTAssertEqual(outcome(.userCancelled), "已返回工作")
         XCTAssertNil(outcome(.interrupted))
         XCTAssertNil(outcome(nil))
-        for phase: AppPhase in [.reminderDue, .triggeringRest, .resting, .paused(until: .duration(now)),
-                                .autoSuspended(reason: .videoCall)] {
+        for phase: AppPhase in [.stopped, .triggeringRest, .resting, .paused(until: .duration(now)),
+                                .autoSuspended(reason: .screenLocked)] {
             XCTAssertNil(outcome(.completed, phase: phase))
         }
     }
